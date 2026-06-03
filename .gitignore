@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.dora/
+out/
+*.swp
+.venv/
+venv/
+build/
+dist/
+.coverage
+
+# Worktrees for parallel development
+.worktrees/
+
+# OS
+.DS_Store
+
+# Local docs (planning, internal notes)
+docs/
+
+# Claude Code
+.claude/
+.claude.json
+CLAUDE.md

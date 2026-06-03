@@ -1,0 +1,42 @@
+# Same as a2-bridge.yaml, but with A2_FAKE_HTTP=1 so the vendor uses
+# its built-in FakeHttpClient (no real A2 sim needed). Used by CI E2E.
+
+# Both nodes run via the bridge venv's python (path is relative to this
+# YAML file's directory, which dora uses as the node cwd). Using the venv
+# python directly avoids `path: shell` (which would require
+# DORA_ALLOW_SHELL_NODES=true) and ensures dora-rs + both packages are
+# resolved from a single interpreter.
+
+nodes:
+  - id: agibot_a2
+    path: ./venv-python
+    args: -m agibot_a2_node
+    env:
+      ROBOT_ID: agibot-a2-test
+      A2_FAKE_HTTP: "1"
+      HEARTBEAT_TIMEOUT_MS: "0"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_request: bridge/cmd_request
+    outputs:
+      - cmd_response
+      - capabilities
+      - state
+      - safety_event
+
+  - id: bridge
+    path: ./venv-python
+    args: -m octos_spec_bridge
+    env:
+      ROBOT_ID: agibot-a2-test
+      HTTP_HOST: "127.0.0.1"
+      HTTP_PORT: "18765"            # non-default to avoid collision with dev
+      CMD_TIMEOUT_S: "5"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_response: agibot_a2/cmd_response
+      capabilities: agibot_a2/capabilities
+      state: agibot_a2/state
+      safety_event: agibot_a2/safety_event
+    outputs:
+      - cmd_request

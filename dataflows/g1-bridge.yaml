@@ -1,0 +1,47 @@
+# Unitree G1 dora dataflow — same shape as a2-bridge.yaml, with G1-specific
+# env vars and HTTP_PORT=8766 so it can co-exist with the A2 bridge.
+#
+# Same convention as A2: both nodes use ./venv-python (the dora venv
+# wrapper at dataflows/venv-python).
+#
+# Usage:
+#   pip install -e bridge[robots.unitree-g1]
+#   dora up
+#   dora start dataflows/g1-bridge.yaml --attach
+
+nodes:
+  - id: unitree_g1
+    path: ./venv-python
+    args: -m unitree_g1_node
+    env:
+      ROBOT_ID: unitree-g1-001
+      DDS_DOMAIN_ID: "0"
+      DDS_NETWORK_INTERFACE: ""
+      STATE_DOWNSAMPLE_HZ: "50"
+      FSM_POLL_HZ: "5"
+      HEARTBEAT_TIMEOUT_MS: "500"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_request: bridge/cmd_request
+    outputs:
+      - cmd_response
+      - capabilities
+      - state
+      - safety_event
+
+  - id: bridge
+    path: ./venv-python
+    args: -m octos_spec_bridge
+    env:
+      ROBOT_ID: unitree-g1-001
+      HTTP_HOST: "127.0.0.1"
+      HTTP_PORT: "8766"
+      CMD_TIMEOUT_S: "30"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_response: unitree_g1/cmd_response
+      capabilities: unitree_g1/capabilities
+      state: unitree_g1/state
+      safety_event: unitree_g1/safety_event
+    outputs:
+      - cmd_request

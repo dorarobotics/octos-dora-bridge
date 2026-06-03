@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "octos-spec-bridge"
+version = "0.1.0"
+description = "SPEC-VENDOR-NODE-V1 ↔ octos HTTP bridge (dora node + FastAPI)"
+requires-python = ">=3.10"
+dependencies = [
+  "dora-rs>=0.2.1,<0.3",
+  "pyarrow>=14",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "httpx>=0.25",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.4", "mypy>=1.10", "types-PyYAML"]
+"robots.agibot-a2" = ["agibot-a2-dora-node @ git+https://github.com/dorarobotics/agibot-a2-dora-node@main"]
+
+[project.scripts]
+octos-spec-bridge = "octos_spec_bridge.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["octos_spec_bridge*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+files = ["octos_spec_bridge"]
+
+[[tool.mypy.overrides]]
+module = "dora"
+ignore_missing_imports = true

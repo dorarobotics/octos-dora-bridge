@@ -1,0 +1,42 @@
+# FF Navi dora dataflow — same shape as a2-bridge.yaml and g1-bridge.yaml,
+# with Navi-specific env vars and HTTP_PORT=8767 to coexist with A2 (8765)
+# and G1 (8766) bridges.
+#
+# Usage:
+#   pip install -e bridge[robots.ff-navi]
+#   dora up
+#   dora start dataflows/navi-bridge.yaml --attach
+
+nodes:
+  - id: ff_navi
+    path: ./venv-python
+    args: -m ff_navi_node
+    env:
+      ROBOT_ID: ff-navi-001
+      NAVI_FAKE_SDK: "0"           # set to "1" for offline dev w/o real SDK
+      HEARTBEAT_TIMEOUT_MS: "1000"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_request: bridge/cmd_request
+    outputs:
+      - cmd_response
+      - capabilities
+      - state
+      - safety_event
+
+  - id: bridge
+    path: ./venv-python
+    args: -m octos_spec_bridge
+    env:
+      ROBOT_ID: ff-navi-001
+      HTTP_HOST: "127.0.0.1"
+      HTTP_PORT: "8767"
+      CMD_TIMEOUT_S: "30"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_response: ff_navi/cmd_response
+      capabilities: ff_navi/capabilities
+      state: ff_navi/state
+      safety_event: ff_navi/safety_event
+    outputs:
+      - cmd_request

@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install bridge with dev extras
+        working-directory: bridge
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Lint (ruff)
+        working-directory: bridge
+        run: ruff check octos_spec_bridge tests
+      - name: Type check (mypy)
+        working-directory: bridge
+        run: mypy octos_spec_bridge
+      - name: Unit + component tests
+        working-directory: bridge
+        run: pytest -v
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dora CLI
+        run: pip install dora-rs-cli
+      - name: Install bridge + agibot adapter
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "bridge[dev,robots.agibot-a2]"
+      - name: E2E (fake HTTP)
+        run: pytest tests/test_e2e_fake_http.py -v -s

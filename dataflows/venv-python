@@ -1,0 +1,8 @@
+#!/bin/bash
+# Wrapper that invokes the bridge venv's python by its symlink path.
+# Dora resolves symlinks before exec, which breaks venv detection
+# (sys.executable ends up at the resolved interpreter, not the venv).
+# By placing this wrapper as a non-symlinked file, dora invokes it
+# directly; the wrapper then `exec`s the venv python via its symlink
+# path so Python correctly finds pyvenv.cfg and loads venv site-packages.
+exec "$(cd "$(dirname "$0")" && pwd)/../bridge/.venv/bin/python" "$@"

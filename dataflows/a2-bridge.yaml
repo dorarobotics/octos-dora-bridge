@@ -1,0 +1,53 @@
+# AgiBot A2 dora dataflow: bridges octos (HTTP, port 8765) to the
+# agibot-a2-dora-node which speaks SPEC-VENDOR-NODE-V1.
+#
+# Both nodes invoke the bridge venv's python directly via a path
+# relative to this YAML file (dora uses the YAML's directory as the
+# node cwd). This avoids `path: shell` — which would require
+# DORA_ALLOW_SHELL_NODES=true — and guarantees that dora-rs plus both
+# Python packages resolve from a single interpreter.
+#
+# Convention: the bridge venv lives at ``<repo>/bridge/.venv``. If your
+# venv is elsewhere, copy this YAML and edit the two `path:` lines.
+#
+# Usage:
+#   pip install -e bridge[robots.agibot-a2]
+#   dora up
+#   dora start dataflows/a2-bridge.yaml --attach
+
+nodes:
+  - id: agibot_a2
+    path: ./venv-python
+    args: -m agibot_a2_node
+    env:
+      ROBOT_ID: agibot-a2-001
+      MOTION_HOST: 192.168.100.100
+      MOTION_PORT: "56322"
+      SYSTEM_HOST: 192.168.100.110
+      SYSTEM_PORT: "51011"
+      HEARTBEAT_TIMEOUT_MS: "0"      # disabled for MuJoCo sim
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_request: bridge/cmd_request
+    outputs:
+      - cmd_response
+      - capabilities
+      - state
+      - safety_event
+
+  - id: bridge
+    path: ./venv-python
+    args: -m octos_spec_bridge
+    env:
+      ROBOT_ID: agibot-a2-001
+      HTTP_HOST: "127.0.0.1"
+      HTTP_PORT: "8765"
+      CMD_TIMEOUT_S: "30"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_response: agibot_a2/cmd_response
+      capabilities: agibot_a2/capabilities
+      state: agibot_a2/state
+      safety_event: agibot_a2/safety_event
+    outputs:
+      - cmd_request
