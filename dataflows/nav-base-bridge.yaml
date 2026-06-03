@@ -32,16 +32,20 @@ nodes:
       - dora_nav_cancel
       - dora_nav_cmd_vel
 
+  # Paths are relative to this dataflow file's directory (dataflows/), which dora
+  # uses as each node's working directory; the fake scripts live in ../examples/.
   - id: fake_localization
     path: ./venv-python
-    args: examples/fake_localization.py
+    args: ../examples/fake_localization.py
+    inputs:
+      tick: dora/timer/millis/500
     outputs:
       - pose
       - obstacles
 
   - id: fake_planner
     path: ./venv-python
-    args: examples/fake_planner.py
+    args: ../examples/fake_planner.py
     inputs:
       goal: nav_base/dora_nav_goal
       cancel: nav_base/dora_nav_cancel
