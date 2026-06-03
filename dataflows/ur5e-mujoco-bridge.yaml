@@ -1,0 +1,110 @@
+# octos -> UR5e + gripper in MuJoCo via dora-moveit2. Adapted from dora-moveit2's
+# examples/move_group_demo/dataflows/ur5e_example_mujoco.yml: user_node is replaced
+# by moveit_arm_node (SPEC orchestrator) + bridge, and gripper_merge folds the
+# gripper into mujoco's control_input.
+#
+# Node `path:`s are relative to this dataflow file's dir (dataflows/). The
+# dora-moveit2 node scripts live in the dora-moveit2 checkout; on epyc set
+# DORA_MOVEIT2=<checkout> and finalize the exact paths during bring-up (the env
+# interpolation below is a placeholder resolved in the bring-up task).
+#
+# Requires: MUJOCO_GL=egl, a bridge venv with octos_spec_bridge + moveit_arm_node
+# + dora_moveit + mujoco, and matched dora 0.2.x.
+
+nodes:
+  - id: mujoco_sim
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/dora-mujoco/dora_mujoco/main.py
+    env:
+      MUJOCO_GL: egl
+      MODEL_XML: ${DORA_MOVEIT2}/examples/move_group_demo/models/ur5e.xml
+    inputs:
+      control_input: gripper_merge/control_input
+    outputs:
+      - joint_positions
+
+  - id: planning_scene
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/planning_scene.py
+    outputs:
+      - planning_scene
+
+  - id: planner
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/planner.py
+    inputs:
+      plan_request: moveit_arm/plan_request
+      joint_positions: mujoco_sim/joint_positions
+    outputs:
+      - trajectory
+      - plan_status
+
+  - id: ik_solver
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/ik_solver.py
+    inputs:
+      ik_request: moveit_arm/ik_request
+      joint_positions: mujoco_sim/joint_positions
+    outputs:
+      - ik_solution
+      - ik_status
+
+  - id: trajectory_executor
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/trajectory_executor.py
+    inputs:
+      trajectory: planner/trajectory
+      joint_positions: mujoco_sim/joint_positions
+    outputs:
+      - joint_commands
+      - execution_status
+
+  - id: gripper_merge
+    path: ./venv-python
+    args: ../examples/gripper_merge.py
+    inputs:
+      joint_commands: trajectory_executor/joint_commands
+      gripper_command: moveit_arm/gripper_command
+    outputs:
+      - control_input
+
+  - id: moveit_arm
+    path: ./venv-python
+    args: -m moveit_arm_node
+    env:
+      ROBOT_ID: ur5e-001
+      ROBOT_CONFIG_MODULE: ur5e
+      GRIPPER_DRIVER: mujoco
+      HEARTBEAT_TIMEOUT_MS: "1000"
+    inputs:
+      cmd_request: bridge/cmd_request
+      joint_positions: mujoco_sim/joint_positions
+      trajectory: planner/trajectory
+      plan_status: planner/plan_status
+      ik_solution: ik_solver/ik_solution
+      ik_status: ik_solver/ik_status
+      execution_status: trajectory_executor/execution_status
+    outputs:
+      - cmd_response
+      - capabilities
+      - state
+      - safety_event
+      - plan_request
+      - ik_request
+      - gripper_command
+
+  - id: bridge
+    path: ./venv-python
+    args: -m octos_spec_bridge
+    env:
+      ROBOT_ID: ur5e-001
+      HTTP_HOST: "127.0.0.1"
+      HTTP_PORT: "8768"
+      CMD_TIMEOUT_S: "60"
+    inputs:
+      cmd_response: moveit_arm/cmd_response
+      capabilities: moveit_arm/capabilities
+      state: moveit_arm/state
+      safety_event: moveit_arm/safety_event
+    outputs:
+      - cmd_request

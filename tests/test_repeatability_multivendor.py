@@ -28,7 +28,7 @@ DATAFLOW_FILES = {
     "agibot-a2": "a2-bridge.yaml",
     "unitree-g1": "g1-bridge.yaml",
     "ff-navi": "navi-bridge.yaml",
-    "ur5e": "ur5e-bridge.yaml",
+    "ur5e": "ur5e-mujoco-bridge.yaml",
     "nav-base": "nav-base-bridge.yaml",
 }
 EXPECTED_BRIDGE_FILES = {
@@ -106,15 +106,27 @@ def test_each_dataflow_yaml_has_canonical_two_node_shape() -> None:
         df = yaml.safe_load(path.read_text())
         nodes = df["nodes"]
         # nav-base uses 4 nodes (nav_base, fake_localization, fake_planner, bridge);
+        # ur5e uses 8 nodes (mujoco_sim, planning_scene, planner, ik_solver,
+        # trajectory_executor, gripper_merge, moveit_arm, bridge) for sim;
         # others use canonical 2-node shape (vendor + bridge).
-        expected_node_count = 4 if robot == "nav-base" else 2
-        assert len(nodes) == expected_node_count, f"{robot} dataflow has != {expected_node_count} nodes"
+        if robot == "nav-base":
+            expected_node_count = 4
+        elif robot == "ur5e":
+            expected_node_count = 8
+        else:
+            expected_node_count = 2
+        assert len(nodes) == expected_node_count, f"{robot} dataflow has {len(nodes)} nodes (expected {expected_node_count})"
         node_ids = {n["id"] for n in nodes}
         assert "bridge" in node_ids, f"{robot} dataflow missing 'bridge' node"
-        # Find the vendor node (not bridge, and for nav-base not fake_localization/fake_planner)
+        # Find the vendor node (not bridge, and skip non-vendor nodes like
+        # fake_localization, fake_planner, mujoco_sim, planning_scene, planner,
+        # ik_solver, trajectory_executor, gripper_merge which are support nodes).
+        excluded_ids = {"bridge", "fake_localization", "fake_planner",
+                       "mujoco_sim", "planning_scene", "planner", "ik_solver",
+                       "trajectory_executor", "gripper_merge"}
         vendor_node = next(
             n for n in nodes
-            if n["id"] not in ("bridge", "fake_localization", "fake_planner")
+            if n["id"] not in excluded_ids
         )
 
         # Vendor outputs the four SPEC-V1 standard topics.

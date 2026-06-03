@@ -5,7 +5,7 @@ version: 0.1.0
 author: dorarobotics
 robot_type: ur5e
 required_safety_tier: safe_motion
-hardware_requirements: ur5e-arm, robotiq-2f85, moveit-arm-bridge
+hardware_requirements: ur5e-arm, robotiq-2f85, dora-moveit2 (runtime extra), mujoco (headless EGL)
 preflight:
   - label: ping arm controller or sim port
     command: bash -c 'test -n "${UR5E_HOST:-}" && curl -fsS -o /dev/null -m 3 http://${UR5E_HOST}:30002 || echo "no arm host set; skipping"'
@@ -13,7 +13,7 @@ preflight:
     critical: false
 init:
   - label: start dora bridge dataflow
-    command: cd /opt/octos-dora-bridge && dora up && dora start dataflows/ur5e-bridge.yaml
+    command: cd /opt/octos-dora-bridge && MUJOCO_GL=egl dora up && dora start dataflows/ur5e-mujoco-bridge.yaml
     timeout_secs: 30
     critical: true
 ready_check:
