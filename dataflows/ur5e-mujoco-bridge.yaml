@@ -1,40 +1,57 @@
 # octos -> UR5e + gripper in MuJoCo via dora-moveit2. Adapted from dora-moveit2's
-# examples/move_group_demo/dataflows/ur5e_example_mujoco.yml: user_node is replaced
-# by moveit_arm_node (SPEC orchestrator) + bridge, and gripper_merge folds the
-# gripper into mujoco's control_input.
+# examples/move_group_demo/dataflows/ur5e_example_mujoco.yml: the `user_node` is
+# replaced by `moveit_arm_node` (the SPEC orchestrator, sharing MoveGroup's dora
+# Node) plus a `bridge`, and `gripper_merge` folds the gripper into mujoco's
+# control_input. Wiring mirrors the real user_node interface
+# (plan_request / ik_request / scene_command / cartesian_trajectory out;
+# joint_positions / plan_status / trajectory / execution_status / ik_solution /
+# ik_status / command_result in).
 #
-# Node `path:`s are relative to this dataflow file's dir (dataflows/). The
-# dora-moveit2 node scripts live in the dora-moveit2 checkout; on epyc set
-# DORA_MOVEIT2=<checkout> and finalize the exact paths during bring-up (the env
-# interpolation below is a placeholder resolved in the bring-up task).
+# ${DORA_MOVEIT2} is the dora-moveit2 checkout. dora can't interpolate env in
+# `path:`/`args:`, so the live run on epyc uses a copy of this file placed inside
+# the dora-moveit2 example dir (where the node scripts' relative paths resolve) —
+# see the bring-up runbook. This committed copy is the canonical wiring reference.
 #
-# Requires: MUJOCO_GL=egl, a bridge venv with octos_spec_bridge + moveit_arm_node
-# + dora_moveit + mujoco, and matched dora 0.2.x.
+# Headless: MuJoCo runs main.py with MUJOCO_HEADLESS=1 (no viewer/display needed).
+# IK uses the pure-numpy solver (IK_SOLVER_TYPE=de) so no tracikpy is required.
+# dora CLI + python dora-rs must both be 0.2.x (epyc has a matched 0.2.1 pair).
 
 nodes:
   - id: mujoco_sim
     path: ./venv-python
     args: ${DORA_MOVEIT2}/dora-mujoco/dora_mujoco/main.py
     env:
-      MUJOCO_GL: egl
-      MODEL_XML: ${DORA_MOVEIT2}/examples/move_group_demo/models/ur5e.xml
+      MUJOCO_HEADLESS: "1"
+      MODEL_NAME: ${DORA_MOVEIT2}/examples/move_group_demo/models/ur5e.xml
     inputs:
+      tick: dora/timer/millis/10
       control_input: gripper_merge/control_input
     outputs:
       - joint_positions
+      - joint_velocities
+      - sensor_data
 
   - id: planning_scene
     path: ./venv-python
     args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/planning_scene.py
+    env:
+      ROBOT_CONFIG_MODULE: "move_group_demo.config.ur5e"
+    inputs:
+      robot_state: mujoco_sim/joint_positions
+      scene_command: moveit_arm/scene_command
+      tick: dora/timer/millis/5000
     outputs:
-      - planning_scene
+      - scene_update
+      - command_result
 
   - id: planner
     path: ./venv-python
     args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/planner.py
+    env:
+      ROBOT_CONFIG_MODULE: "move_group_demo.config.ur5e"
     inputs:
       plan_request: moveit_arm/plan_request
-      joint_positions: mujoco_sim/joint_positions
+      scene_update: planning_scene/scene_update
     outputs:
       - trajectory
       - plan_status
@@ -42,9 +59,11 @@ nodes:
   - id: ik_solver
     path: ./venv-python
     args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/ik_solver.py
+    env:
+      ROBOT_CONFIG_MODULE: "move_group_demo.config.ur5e"
+      IK_SOLVER_TYPE: "de"   # pure-numpy NumericalIKSolver; no tracikpy needed
     inputs:
       ik_request: moveit_arm/ik_request
-      joint_positions: mujoco_sim/joint_positions
     outputs:
       - ik_solution
       - ik_status
@@ -52,9 +71,13 @@ nodes:
   - id: trajectory_executor
     path: ./venv-python
     args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/trajectory_executor.py
+    env:
+      ROBOT_CONFIG_MODULE: "move_group_demo.config.ur5e"
     inputs:
       trajectory: planner/trajectory
+      cartesian_trajectory: moveit_arm/cartesian_trajectory
       joint_positions: mujoco_sim/joint_positions
+      tick: dora/timer/millis/50
     outputs:
       - joint_commands
       - execution_status
@@ -73,17 +96,18 @@ nodes:
     args: -m moveit_arm_node
     env:
       ROBOT_ID: ur5e-001
-      ROBOT_CONFIG_MODULE: ur5e
+      ROBOT_CONFIG_MODULE: "move_group_demo.config.ur5e"
       GRIPPER_DRIVER: mujoco
       HEARTBEAT_TIMEOUT_MS: "1000"
     inputs:
       cmd_request: bridge/cmd_request
       joint_positions: mujoco_sim/joint_positions
-      trajectory: planner/trajectory
       plan_status: planner/plan_status
+      trajectory: planner/trajectory
+      execution_status: trajectory_executor/execution_status
       ik_solution: ik_solver/ik_solution
       ik_status: ik_solver/ik_status
-      execution_status: trajectory_executor/execution_status
+      command_result: planning_scene/command_result
     outputs:
       - cmd_response
       - capabilities
@@ -91,6 +115,8 @@ nodes:
       - safety_event
       - plan_request
       - ik_request
+      - scene_command
+      - cartesian_trajectory
       - gripper_command
 
   - id: bridge
