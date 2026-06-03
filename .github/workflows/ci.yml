@@ -35,16 +35,38 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    # Pulls agibot-a2-dora-node from a sibling private repo. Needs the
+    # AGIBOT_REPO_TOKEN secret — a fine-grained PAT with `Contents: Read` on
+    # dorarobotics/agibot-a2-dora-node. When the secret is absent (fork PRs,
+    # first-time setup), the install + test steps skip with a warning instead
+    # of hard-failing, so the unit-test job remains the blocking gate.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Check vendor auth
+        id: vendor_auth
+        env:
+          AGIBOT_REPO_TOKEN: ${{ secrets.AGIBOT_REPO_TOKEN }}
+        run: |
+          if [ -z "$AGIBOT_REPO_TOKEN" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::AGIBOT_REPO_TOKEN secret missing — skipping e2e job. A maintainer should add the PAT in repo settings to enable end-to-end tests."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            git config --global \
+              url."https://oauth2:${AGIBOT_REPO_TOKEN}@github.com/dorarobotics/".insteadOf \
+              "https://github.com/dorarobotics/"
+          fi
       - name: Install dora CLI
+        if: steps.vendor_auth.outputs.skip != 'true'
         run: pip install dora-rs-cli
       - name: Install bridge + agibot adapter
+        if: steps.vendor_auth.outputs.skip != 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -e "bridge[dev,robots.agibot-a2]"
       - name: E2E (fake HTTP)
+        if: steps.vendor_auth.outputs.skip != 'true'
         run: pytest tests/test_e2e_fake_http.py -v -s
