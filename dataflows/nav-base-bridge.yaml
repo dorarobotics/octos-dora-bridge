@@ -1,0 +1,66 @@
+# nav-base dora dataflow: bridges octos (HTTP, port 8769) to nav-base-dora-node
+# running alongside dora-nav's planning + localization nodes.
+#
+# Real-hardware deployment: replace fake_localization / fake_planner with
+# dora-nav's actual node binaries.
+#
+# Usage:
+#   pip install -e "bridge[robots.nav-base]"
+#   dora up
+#   dora start dataflows/nav-base-bridge.yaml --attach
+
+nodes:
+  - id: nav_base
+    path: ./venv-python
+    args: -m nav_base_node
+    env:
+      ROBOT_ID: nav-base-001
+      WAYPOINTS_PATH: "load_path.yml"
+      HEARTBEAT_TIMEOUT_MS: "1000"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_request: bridge/cmd_request
+      dora_nav_pose: fake_localization/pose
+      dora_nav_status: fake_planner/status
+      dora_nav_obstacles: fake_localization/obstacles
+    outputs:
+      - cmd_response
+      - capabilities
+      - state
+      - safety_event
+      - dora_nav_goal
+      - dora_nav_cancel
+      - dora_nav_cmd_vel
+
+  - id: fake_localization
+    path: ./venv-python
+    args: examples/fake_localization.py
+    outputs:
+      - pose
+      - obstacles
+
+  - id: fake_planner
+    path: ./venv-python
+    args: examples/fake_planner.py
+    inputs:
+      goal: nav_base/dora_nav_goal
+      cancel: nav_base/dora_nav_cancel
+    outputs:
+      - status
+
+  - id: bridge
+    path: ./venv-python
+    args: -m octos_spec_bridge
+    env:
+      ROBOT_ID: nav-base-001
+      HTTP_HOST: "127.0.0.1"
+      HTTP_PORT: "8769"
+      CMD_TIMEOUT_S: "30"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_response: nav_base/cmd_response
+      capabilities: nav_base/capabilities
+      state: nav_base/state
+      safety_event: nav_base/safety_event
+    outputs:
+      - cmd_request

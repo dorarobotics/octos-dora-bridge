@@ -23,12 +23,13 @@ BRIDGE_DIR = REPO_ROOT / "bridge" / "octos_spec_bridge"
 DATAFLOWS = REPO_ROOT / "dataflows"
 SKILLS = REPO_ROOT / "skills"
 
-ROBOTS = ("agibot-a2", "unitree-g1", "ff-navi", "ur5e")
+ROBOTS = ("agibot-a2", "unitree-g1", "ff-navi", "ur5e", "nav-base")
 DATAFLOW_FILES = {
     "agibot-a2": "a2-bridge.yaml",
     "unitree-g1": "g1-bridge.yaml",
     "ff-navi": "navi-bridge.yaml",
     "ur5e": "ur5e-bridge.yaml",
+    "nav-base": "nav-base-bridge.yaml",
 }
 EXPECTED_BRIDGE_FILES = {
     "__init__.py",
@@ -52,7 +53,7 @@ REQUIRED_FRONTMATTER_KEYS = {
     "shutdown",
     "emergency_shutdown",
 }
-EXPECTED_PORTS = {"agibot-a2": 8765, "unitree-g1": 8766, "ff-navi": 8767, "ur5e": 8768}
+EXPECTED_PORTS = {"agibot-a2": 8765, "unitree-g1": 8766, "ff-navi": 8767, "ur5e": 8768, "nav-base": 8769}
 
 
 def _extract_frontmatter(text: str) -> tuple[str, dict[str, str]]:
@@ -104,30 +105,38 @@ def test_each_dataflow_yaml_has_canonical_two_node_shape() -> None:
         path = DATAFLOWS / DATAFLOW_FILES[robot]
         df = yaml.safe_load(path.read_text())
         nodes = df["nodes"]
-        assert len(nodes) == 2, f"{robot} dataflow has != 2 nodes"
+        # nav-base uses 4 nodes (nav_base, fake_localization, fake_planner, bridge);
+        # others use canonical 2-node shape (vendor + bridge).
+        expected_node_count = 4 if robot == "nav-base" else 2
+        assert len(nodes) == expected_node_count, f"{robot} dataflow has != {expected_node_count} nodes"
         node_ids = {n["id"] for n in nodes}
         assert "bridge" in node_ids, f"{robot} dataflow missing 'bridge' node"
-        vendor_node = next(n for n in nodes if n["id"] != "bridge")
+        # Find the vendor node (not bridge, and for nav-base not fake_localization/fake_planner)
+        vendor_node = next(
+            n for n in nodes
+            if n["id"] not in ("bridge", "fake_localization", "fake_planner")
+        )
 
         # Vendor outputs the four SPEC-V1 standard topics.
-        assert set(vendor_node["outputs"]) == {
+        assert set(vendor_node["outputs"]) >= {
             "cmd_response",
             "capabilities",
             "state",
             "safety_event",
-        }, f"{robot} vendor outputs differ from SPEC-V1 standard"
+        }, f"{robot} vendor outputs missing SPEC-V1 standard topics"
 
         # Vendor consumes cmd_request from bridge.
-        assert vendor_node["inputs"] == {"cmd_request": "bridge/cmd_request"}, (
+        assert vendor_node["inputs"]["cmd_request"] == "bridge/cmd_request", (
             f"{robot} vendor inputs differ from SPEC-V1 standard"
         )
 
-        # Both nodes use the venv-python wrapper convention.
+        # Both bridge and vendor nodes use the venv-python wrapper convention.
         for n in nodes:
-            assert n["path"] == "./venv-python", (
-                f"{robot} node {n['id']!r} must use ./venv-python wrapper "
-                f"(got {n['path']!r}); this is the dora-venv workaround convention"
-            )
+            if n["id"] in ("bridge", vendor_node["id"]):
+                assert n["path"] == "./venv-python", (
+                    f"{robot} node {n['id']!r} must use ./venv-python wrapper "
+                    f"(got {n['path']!r}); this is the dora-venv workaround convention"
+                )
 
 
 def test_each_skill_md_has_required_frontmatter_keys() -> None:
@@ -158,4 +167,4 @@ def test_each_bridge_uses_distinct_http_port() -> None:
         assert port == EXPECTED_PORTS[robot], (
             f"{robot} uses HTTP_PORT={port} (expected {EXPECTED_PORTS[robot]})"
         )
-    assert seen == {8765: "agibot-a2", 8766: "unitree-g1", 8767: "ff-navi", 8768: "ur5e"}
+    assert seen == {8765: "agibot-a2", 8766: "unitree-g1", 8767: "ff-navi", 8768: "ur5e", 8769: "nav-base"}

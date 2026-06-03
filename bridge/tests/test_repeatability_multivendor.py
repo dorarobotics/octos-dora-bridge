@@ -85,6 +85,25 @@ UR5E_ADVERT = {
     ],
 }
 
+NAV_BASE_ADVERT = {
+    "spec_version": "1.0.0",
+    "vendor": "dora_nav",
+    "model": "base",
+    "robot_id": "nav-base-001",
+    "commands": [
+        {"verb": "robot.heartbeat", "safety_tier": "emergency_override"},
+        {"verb": "robot.estop", "safety_tier": "emergency_override"},
+        {"verb": "robot.release_control", "safety_tier": "emergency_override"},
+        {"verb": "robot.get_capabilities", "safety_tier": "emergency_override"},
+        {"verb": "vendor.dora_nav.base.go_to_pose", "safety_tier": "emergency_override"},
+        {"verb": "vendor.dora_nav.base.go_to_named", "safety_tier": "emergency_override"},
+        {"verb": "vendor.dora_nav.base.set_velocity", "safety_tier": "emergency_override"},
+        {"verb": "vendor.dora_nav.base.stop", "safety_tier": "emergency_override"},
+        {"verb": "vendor.dora_nav.localization.get_pose", "safety_tier": "emergency_override"},
+        {"verb": "vendor.dora_nav.map.get_obstacles", "safety_tier": "emergency_override"},
+    ],
+}
+
 
 @pytest.mark.parametrize(
     "label,advert,expected_tier",
@@ -93,6 +112,7 @@ UR5E_ADVERT = {
         ("unitree-g1", UNITREE_G1_ADVERT, "full_actuation"),
         ("ff-navi", FF_NAVI_ADVERT, "emergency_override"),
         ("ur5e", UR5E_ADVERT, "emergency_override"),
+        ("nav-base", NAV_BASE_ADVERT, "emergency_override"),
     ],
 )
 def test_each_vendor_catalog_includes_safety_tier(
