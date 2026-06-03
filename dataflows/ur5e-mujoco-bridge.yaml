@@ -98,7 +98,7 @@ nodes:
       ROBOT_ID: ur5e-001
       ROBOT_CONFIG_MODULE: "move_group_demo.config.ur5e"
       GRIPPER_DRIVER: mujoco
-      HEARTBEAT_TIMEOUT_MS: "1000"
+      HEARTBEAT_TIMEOUT_MS: "0"     # disabled for sim (no heartbeat client; matches a2-bridge)
     inputs:
       cmd_request: bridge/cmd_request
       joint_positions: mujoco_sim/joint_positions
