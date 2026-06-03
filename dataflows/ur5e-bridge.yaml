@@ -1,0 +1,45 @@
+# UR5e + Robotiq 2F-85 dora dataflow: bridges octos (HTTP, port 8768) to the
+# moveit-arm-dora-node which speaks SPEC-VENDOR-NODE-V1.
+#
+# Bridge convention: the bridge venv lives at <repo>/bridge/.venv. The bridge
+# and the vendor node share that venv via the ./venv-python launcher.
+#
+# Usage:
+#   pip install -e "bridge[robots.moveit-arm]"
+#   dora up
+#   dora start dataflows/ur5e-bridge.yaml --attach
+
+nodes:
+  - id: moveit_arm
+    path: ./venv-python
+    args: -m moveit_arm_node
+    env:
+      ROBOT_ID: ur5e-001
+      ROBOT_CONFIG_MODULE: ur5e
+      GRIPPER_DRIVER: robotiq_2f85
+      HEARTBEAT_TIMEOUT_MS: "1000"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_request: bridge/cmd_request
+    outputs:
+      - cmd_response
+      - capabilities
+      - state
+      - safety_event
+
+  - id: bridge
+    path: ./venv-python
+    args: -m octos_spec_bridge
+    env:
+      ROBOT_ID: ur5e-001
+      HTTP_HOST: "127.0.0.1"
+      HTTP_PORT: "8768"
+      CMD_TIMEOUT_S: "30"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_response: moveit_arm/cmd_response
+      capabilities: moveit_arm/capabilities
+      state: moveit_arm/state
+      safety_event: moveit_arm/safety_event
+    outputs:
+      - cmd_request

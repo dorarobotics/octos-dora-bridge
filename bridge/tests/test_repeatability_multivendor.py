@@ -62,6 +62,29 @@ FF_NAVI_ADVERT = {
     ],
 }
 
+UR5E_ADVERT = {
+    "spec_version": "1.0.0",
+    "vendor": "moveit",
+    "model": "arm",
+    "robot_id": "ur5e-001",
+    "commands": [
+        {"verb": "robot.heartbeat", "safety_tier": "emergency_override"},
+        {"verb": "robot.estop", "safety_tier": "emergency_override"},
+        {"verb": "robot.release_control", "safety_tier": "emergency_override"},
+        {"verb": "robot.get_capabilities", "safety_tier": "emergency_override"},
+        {"verb": "vendor.moveit.arm.move_to_pose", "safety_tier": "emergency_override"},
+        {"verb": "vendor.moveit.arm.move_to_joint_state", "safety_tier": "emergency_override"},
+        {"verb": "vendor.moveit.arm.move_to_named", "safety_tier": "emergency_override"},
+        {"verb": "vendor.moveit.arm.plan", "safety_tier": "emergency_override"},
+        {"verb": "vendor.moveit.arm.execute", "safety_tier": "emergency_override"},
+        {"verb": "vendor.moveit.arm.gripper.set", "safety_tier": "emergency_override"},
+        {"verb": "vendor.moveit.arm.gripper.open", "safety_tier": "emergency_override"},
+        {"verb": "vendor.moveit.arm.gripper.close", "safety_tier": "emergency_override"},
+        {"verb": "vendor.moveit.arm.scene.add_collision", "safety_tier": "emergency_override"},
+        {"verb": "vendor.moveit.arm.scene.clear", "safety_tier": "emergency_override"},
+    ],
+}
+
 
 @pytest.mark.parametrize(
     "label,advert,expected_tier",
@@ -69,6 +92,7 @@ FF_NAVI_ADVERT = {
         ("agibot-a2", AGIBOT_A2_ADVERT, "observe"),
         ("unitree-g1", UNITREE_G1_ADVERT, "full_actuation"),
         ("ff-navi", FF_NAVI_ADVERT, "emergency_override"),
+        ("ur5e", UR5E_ADVERT, "emergency_override"),
     ],
 )
 def test_each_vendor_catalog_includes_safety_tier(

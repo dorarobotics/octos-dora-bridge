@@ -18,6 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.4", "mypy>=1.10", "types-PyYAML"]
 "robots.agibot-a2" = ["agibot-a2-dora-node @ git+https://github.com/dorarobotics/agibot-a2-dora-node@main"]
+"robots.moveit-arm" = ["moveit-arm-dora-node @ git+https://github.com/dorarobotics/moveit-arm-dora-node@main"]
 
 [project.scripts]
 octos-spec-bridge = "octos_spec_bridge.__main__:main"

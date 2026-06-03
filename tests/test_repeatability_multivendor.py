@@ -23,11 +23,12 @@ BRIDGE_DIR = REPO_ROOT / "bridge" / "octos_spec_bridge"
 DATAFLOWS = REPO_ROOT / "dataflows"
 SKILLS = REPO_ROOT / "skills"
 
-ROBOTS = ("agibot-a2", "unitree-g1", "ff-navi")
+ROBOTS = ("agibot-a2", "unitree-g1", "ff-navi", "ur5e")
 DATAFLOW_FILES = {
     "agibot-a2": "a2-bridge.yaml",
     "unitree-g1": "g1-bridge.yaml",
     "ff-navi": "navi-bridge.yaml",
+    "ur5e": "ur5e-bridge.yaml",
 }
 EXPECTED_BRIDGE_FILES = {
     "__init__.py",
@@ -51,7 +52,7 @@ REQUIRED_FRONTMATTER_KEYS = {
     "shutdown",
     "emergency_shutdown",
 }
-EXPECTED_PORTS = {"agibot-a2": 8765, "unitree-g1": 8766, "ff-navi": 8767}
+EXPECTED_PORTS = {"agibot-a2": 8765, "unitree-g1": 8766, "ff-navi": 8767, "ur5e": 8768}
 
 
 def _extract_frontmatter(text: str) -> tuple[str, dict[str, str]]:
@@ -157,4 +158,4 @@ def test_each_bridge_uses_distinct_http_port() -> None:
         assert port == EXPECTED_PORTS[robot], (
             f"{robot} uses HTTP_PORT={port} (expected {EXPECTED_PORTS[robot]})"
         )
-    assert seen == {8765: "agibot-a2", 8766: "unitree-g1", 8767: "ff-navi"}
+    assert seen == {8765: "agibot-a2", 8766: "unitree-g1", 8767: "ff-navi", 8768: "ur5e"}
