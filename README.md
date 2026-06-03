@@ -2,7 +2,7 @@
 
 Drop-in skills that let [octos](https://github.com/octos-org/octos) control
 real robots via [dora-rs](https://github.com/dora-rs/dora) vendor adapters
-that speak [SPEC-VENDOR-NODE-V1](https://github.com/dorarobotics/agibot-a2-dora-node/blob/main/docs/specs/2026-05-21-vendor-node-v1.md).
+that speak `SPEC-VENDOR-NODE-V1`.
 
 octos doesn't have to know anything about dora or any specific robot — it
 just calls HTTP tools. The bridge in this repo is the only piece that
