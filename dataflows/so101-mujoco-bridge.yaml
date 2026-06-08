@@ -1,0 +1,119 @@
+# octos -> SO-101 (LeRobot 5-DOF arm) in MuJoCo via dora-moveit2.
+# SO-101 counterpart of rebot-mujoco-bridge.yaml. The robot swap touches the same
+# four things, plus the gripper actuator index (SO-101 has 5 arm actuators, so the
+# gripper jaw is actuator #5, not #6):
+#   1. MODEL_NAME            -> models/so101_pickplace.xml (cube-first; arm qpos[7:12])
+#   2. ROBOT_CONFIG_MODULE   -> move_group_demo.config.so101  (SO101Config, NUM_JOINTS=5)
+#   3. gripper_merge env     -> GRIPPER_CTRL_INDEX=5; jaw-angle ctrl range (TUNE on epyc)
+#   4. ROBOT_ID              -> so101-001
+# The 5-DOF skill IK is manifest-driven (num_joints=5, approach_axis=x, down-only).
+# ${DORA_MOVEIT2} = dora-moveit2 checkout; ${SKILL_PACK} = moveit-arm-dora-node/skill_pack.
+
+nodes:
+  - id: mujoco_sim
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/dora-mujoco/dora_mujoco/main.py
+    env:
+      MUJOCO_HEADLESS: "1"
+      MODEL_NAME: ${DORA_MOVEIT2}/examples/move_group_demo/models/so101_pickplace.xml
+    inputs:
+      tick: dora/timer/millis/10
+      control_input: gripper_merge/control_input
+    outputs:
+      - joint_positions
+      - joint_velocities
+      - sensor_data
+
+  - id: planning_scene
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/planning_scene.py
+    env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.so101" }
+    inputs:
+      robot_state: mujoco_sim/joint_positions
+      scene_command: moveit_arm/scene_command
+      tick: dora/timer/millis/5000
+    outputs: [scene_update, command_result]
+
+  - id: planner
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/planner.py
+    env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.so101" }
+    inputs:
+      plan_request: moveit_arm/plan_request
+      scene_update: planning_scene/scene_update
+    outputs: [trajectory, plan_status]
+
+  - id: ik_solver
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/ik_solver.py
+    env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.so101", IK_SOLVER_TYPE: "de" }
+    inputs:
+      ik_request: moveit_arm/ik_request
+    outputs: [ik_solution, ik_status]
+
+  - id: trajectory_executor
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/trajectory_executor.py
+    env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.so101" }
+    inputs:
+      trajectory: planner/trajectory
+      cartesian_trajectory: moveit_arm/cartesian_trajectory
+      joint_positions: mujoco_sim/joint_positions
+      tick: dora/timer/millis/50
+    outputs: [joint_commands, execution_status]
+
+  - id: gripper_merge
+    path: ./venv-python
+    args: ${SKILL_PACK}/sim/gripper_merge.py
+    env:
+      GRIPPER_CTRL_INDEX: "5"      # 5 arm actuators (0..4), gripper jaw is actuator #5
+      GRIPPER_OPEN_WIDTH: "0.06"   # skill open width -> frac=1 -> open jaw
+      GRIPPER_CTRL_MIN: "1.5"      # jaw angle when OPEN  (TUNE: which extreme opens)
+      GRIPPER_CTRL_MAX: "0.1"      # jaw angle when CLOSED
+    inputs:
+      joint_commands: trajectory_executor/joint_commands
+      gripper_command: moveit_arm/gripper_command
+    outputs: [control_input]
+
+  - id: moveit_arm
+    path: ./venv-python
+    args: -m moveit_arm_node
+    env:
+      ROBOT_ID: so101-001
+      ROBOT_CONFIG_MODULE: "move_group_demo.config.so101"
+      GRIPPER_DRIVER: mujoco
+      HEARTBEAT_TIMEOUT_MS: "0"
+    inputs:
+      cmd_request: bridge/cmd_request
+      joint_positions: mujoco_sim/joint_positions
+      plan_status: planner/plan_status
+      trajectory: planner/trajectory
+      execution_status: trajectory_executor/execution_status
+      ik_solution: ik_solver/ik_solution
+      ik_status: ik_solver/ik_status
+      command_result: planning_scene/command_result
+    outputs:
+      - cmd_response
+      - capabilities
+      - state
+      - safety_event
+      - plan_request
+      - ik_request
+      - scene_command
+      - cartesian_trajectory
+      - gripper_command
+
+  - id: bridge
+    path: ./venv-python
+    args: -m octos_spec_bridge
+    env:
+      ROBOT_ID: so101-001
+      HTTP_HOST: "127.0.0.1"
+      HTTP_PORT: "8768"
+      CMD_TIMEOUT_S: "60"
+    inputs:
+      cmd_response: moveit_arm/cmd_response
+      capabilities: moveit_arm/capabilities
+      state: moveit_arm/state
+      safety_event: moveit_arm/safety_event
+    outputs: [cmd_request]
