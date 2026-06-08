@@ -148,10 +148,14 @@ def get_plate_position() -> str:
 def pick_at(x: float, y: float) -> str:
     global _grasp_R, _pick_xy
     x, y = float(x), float(y)
-    # establish a fixed grasp orientation (down) at this xy, then hold it
-    _solve([x, y, GRASP_Z], HOME.copy())
+    # Establish the down-pointing grasp orientation at the APPROACH height (which
+    # is reliably reachable from the HOME seed), then hold that orientation down to
+    # the grasp. Solving the grasp DIRECTLY from HOME can stick in a local minimum
+    # on arms whose grasp pose is far from HOME (reBot does — the DLS solver lands
+    # 24cm off, not down-pointing). Seed-chaining approach -> grasp converges.
+    above = _solve([x, y, APPROACH_Z], HOME.copy())
     _grasp_R = _d.site_xmat[_site].reshape(3, 3).copy()
-    above = _solve([x, y, APPROACH_Z], HOME.copy(), target_R=_grasp_R)
+    above = _solve([x, y, APPROACH_Z], above, target_R=_grasp_R)
     at = _solve([x, y, GRASP_Z], above, target_R=_grasp_R)
     lifts = [_solve([x, y, z], at, target_R=_grasp_R) for z in LIFT_ZS]
 
