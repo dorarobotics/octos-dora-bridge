@@ -1,0 +1,141 @@
+# octos -> reBotArm B601-DM + gripper in MuJoCo via dora-moveit2.
+# reBot counterpart of ur5e-mujoco-bridge.yaml — identical wiring, repointed at
+# the reBot model + config, with the gripper width->ctrl mapping INVERTED for the
+# reBot gripper (low ctrl = closed, opposite of the UR5e Robotiq).
+#
+# Robot swap touches exactly four things vs the UR5e dataflow:
+#   1. MODEL_NAME            -> models/rebot_pickplace.xml
+#   2. ROBOT_CONFIG_MODULE   -> move_group_demo.config.rebot   (RebotConfig)
+#   3. gripper_merge env     -> CTRL_MIN/MAX swapped to invert the open/close sense
+#   4. ROBOT_ID              -> rebot-001
+# The qpos layout is kept identical (object freejoint first) so the skill code and
+# ball_state.py transfer unchanged.
+#
+# ${DORA_MOVEIT2} is the dora-moveit2 checkout. dora can't interpolate env in
+# `path:`/`args:`, so the live run on epyc uses a copy of this file placed inside
+# the dora-moveit2 example dir (where the node scripts' relative paths resolve).
+# dora CLI + python dora-rs must both be 0.2.x.
+
+nodes:
+  - id: mujoco_sim
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/dora-mujoco/dora_mujoco/main.py
+    env:
+      MUJOCO_HEADLESS: "1"
+      MODEL_NAME: ${DORA_MOVEIT2}/examples/move_group_demo/models/rebot_pickplace.xml
+    inputs:
+      tick: dora/timer/millis/10
+      control_input: gripper_merge/control_input
+    outputs:
+      - joint_positions
+      - joint_velocities
+      - sensor_data
+
+  - id: planning_scene
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/planning_scene.py
+    env:
+      ROBOT_CONFIG_MODULE: "move_group_demo.config.rebot"
+    inputs:
+      robot_state: mujoco_sim/joint_positions
+      scene_command: moveit_arm/scene_command
+      tick: dora/timer/millis/5000
+    outputs:
+      - scene_update
+      - command_result
+
+  - id: planner
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/planner.py
+    env:
+      ROBOT_CONFIG_MODULE: "move_group_demo.config.rebot"
+    inputs:
+      plan_request: moveit_arm/plan_request
+      scene_update: planning_scene/scene_update
+    outputs:
+      - trajectory
+      - plan_status
+
+  - id: ik_solver
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/ik_solver.py
+    env:
+      ROBOT_CONFIG_MODULE: "move_group_demo.config.rebot"
+      IK_SOLVER_TYPE: "de"   # pure-numpy NumericalIKSolver; no tracikpy needed
+    inputs:
+      ik_request: moveit_arm/ik_request
+    outputs:
+      - ik_solution
+      - ik_status
+
+  - id: trajectory_executor
+    path: ./venv-python
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/trajectory_executor.py
+    env:
+      ROBOT_CONFIG_MODULE: "move_group_demo.config.rebot"
+    inputs:
+      trajectory: planner/trajectory
+      cartesian_trajectory: moveit_arm/cartesian_trajectory
+      joint_positions: mujoco_sim/joint_positions
+      tick: dora/timer/millis/50
+    outputs:
+      - joint_commands
+      - execution_status
+
+  - id: gripper_merge
+    path: ./venv-python
+    args: ../examples/gripper_merge.py
+    env:
+      GRIPPER_CTRL_INDEX: "6"      # 6 arm actuators, gripper is actuator #7
+      GRIPPER_OPEN_WIDTH: "0.085"  # skill opens with width=0.085 -> frac=1 -> open
+      GRIPPER_CTRL_MIN: "0.05"     # SWAPPED vs Robotiq: high finger ctrl = OPEN
+      GRIPPER_CTRL_MAX: "0.001"    #                     low finger ctrl  = CLOSED
+    inputs:
+      joint_commands: trajectory_executor/joint_commands
+      gripper_command: moveit_arm/gripper_command
+    outputs:
+      - control_input
+
+  - id: moveit_arm
+    path: ./venv-python
+    args: -m moveit_arm_node
+    env:
+      ROBOT_ID: rebot-001
+      ROBOT_CONFIG_MODULE: "move_group_demo.config.rebot"
+      GRIPPER_DRIVER: mujoco
+      HEARTBEAT_TIMEOUT_MS: "0"     # disabled for sim (no heartbeat client)
+    inputs:
+      cmd_request: bridge/cmd_request
+      joint_positions: mujoco_sim/joint_positions
+      plan_status: planner/plan_status
+      trajectory: planner/trajectory
+      execution_status: trajectory_executor/execution_status
+      ik_solution: ik_solver/ik_solution
+      ik_status: ik_solver/ik_status
+      command_result: planning_scene/command_result
+    outputs:
+      - cmd_response
+      - capabilities
+      - state
+      - safety_event
+      - plan_request
+      - ik_request
+      - scene_command
+      - cartesian_trajectory
+      - gripper_command
+
+  - id: bridge
+    path: ./venv-python
+    args: -m octos_spec_bridge
+    env:
+      ROBOT_ID: rebot-001
+      HTTP_HOST: "127.0.0.1"
+      HTTP_PORT: "8768"
+      CMD_TIMEOUT_S: "60"
+    inputs:
+      cmd_response: moveit_arm/cmd_response
+      capabilities: moveit_arm/capabilities
+      state: moveit_arm/state
+      safety_event: moveit_arm/safety_event
+    outputs:
+      - cmd_request

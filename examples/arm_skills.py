@@ -32,11 +32,25 @@ GRIP_DWELL = float(os.environ.get("GRIP_DWELL", "3.0"))
 
 ARM_QPOS = slice(7, 13)
 ARM_QVEL = slice(6, 12)
-HOME = np.array([-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0])
-GRASP_BIAS = 0.017     # live arm undershoots ~1.7cm; command grasp this much lower
-APPROACH_Z = 0.22
-GRASP_Z = 0.03 - GRASP_BIAS
-PLACE_Z = 0.04 - GRASP_BIAS
+
+
+def _env_vec(name: str, default: list) -> np.ndarray:
+    v = os.environ.get(name)
+    return np.array([float(x) for x in v.split(",")]) if v else np.array(default)
+
+
+# Robot-specific knobs (defaults = UR5e demo; the reBot launcher overrides via env
+# so the SAME skill code drives either arm — only HOME, grasp heights, and the
+# gripper open/close widths change). The qpos slices above are identical for both
+# robots because each scene declares the free object first (object[0:7], arm[7:13]).
+HOME = _env_vec("ARM_HOME", [-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0])
+GRASP_BIAS = float(os.environ.get("GRASP_BIAS", "0.017"))  # live arm undershoot; 0 in pure sim
+APPROACH_Z = float(os.environ.get("APPROACH_Z", "0.22"))
+GRASP_Z = float(os.environ.get("GRASP_Z", "0.03")) - GRASP_BIAS
+PLACE_Z = float(os.environ.get("PLACE_Z", "0.04")) - GRASP_BIAS
+GRIP_OPEN_W = float(os.environ.get("GRIP_OPEN_W", "0.085"))   # width that maps to "open"
+GRIP_CLOSE_W = float(os.environ.get("GRIP_CLOSE_W", "0.0"))   # width that maps to "closed"
+LIFT_ZS = _env_vec("LIFT_ZS", [0.07, 0.13, APPROACH_Z])       # staged-lift heights
 
 _m = mujoco.MjModel.from_xml_path(os.environ["MODEL_NAME"])
 _d = mujoco.MjData(_m)
@@ -139,13 +153,13 @@ def pick_at(x: float, y: float) -> str:
     _grasp_R = _d.site_xmat[_site].reshape(3, 3).copy()
     above = _solve([x, y, APPROACH_Z], HOME.copy(), target_R=_grasp_R)
     at = _solve([x, y, GRASP_Z], above, target_R=_grasp_R)
-    lifts = [_solve([x, y, z], at, target_R=_grasp_R) for z in (0.07, 0.13, APPROACH_Z)]
+    lifts = [_solve([x, y, z], at, target_R=_grasp_R) for z in LIFT_ZS]
 
     _call(NAMED, name="home", control_source="octos")
-    _call(GRIP, width=0.085)                # open
+    _call(GRIP, width=GRIP_OPEN_W)           # open
     _move(above)
     _move(at)
-    _call(GRIP, width=0.0)                   # close
+    _call(GRIP, width=GRIP_CLOSE_W)          # close
     time.sleep(GRIP_DWELL)
     for q in lifts:
         _move(q)
@@ -173,7 +187,7 @@ def place_at(x: float, y: float) -> str:
     _move(above)
     at = _solve([x, y, PLACE_Z], above, target_R=_grasp_R)
     _move(at)
-    _call(GRIP, width=0.085)                 # release
+    _call(GRIP, width=GRIP_OPEN_W)           # release
     _move(above)                             # retract
     _call(NAMED, name="home", control_source="octos")
     _pick_xy = None

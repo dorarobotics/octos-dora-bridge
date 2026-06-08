@@ -24,6 +24,13 @@ from octos_py.tools import Tool, ToolRegistry, ToolResult  # noqa: E402
 
 _NUM = {"type": "number"}
 
+# Object/robot nouns are env-driven so the SAME agent drives either arm: the UR5e
+# launcher leaves the defaults (red ball / UR5e); the reBot launcher sets
+# OBJECT_NOUN="red cube" / ROBOT_NAME="reBotArm B601-DM". Tool *names* stay the
+# same (get_ball_position etc.) — only the descriptions the LLM reads change.
+OBJECT = os.environ.get("OBJECT_NOUN", "red ball")
+ROBOT = os.environ.get("ROBOT_NAME", "UR5e")
+
 
 class _Fn(Tool):
     def __init__(self, name, desc, schema, fn):
@@ -47,7 +54,7 @@ class _Fn(Tool):
 
 TOOLS = [
     _Fn("get_ball_position",
-        "Return the red ball's position on the table as 'x=.., y=..' in meters.",
+        f"Return the {OBJECT}'s position on the table as 'x=.., y=..' in meters.",
         {"type": "object", "properties": {}, "required": []},
         lambda: arm_skills.get_ball_position()),
     _Fn("get_plate_position",
@@ -66,10 +73,10 @@ TOOLS = [
         lambda x, y: arm_skills.place_at(x, y)),
 ]
 
-SYSTEM_PROMPT = """You are a robot arm agent controlling a UR5e with a gripper in simulation.
+SYSTEM_PROMPT = f"""You are a robot arm agent controlling a {ROBOT} with a gripper in simulation.
 
 You move objects using these tools:
-- get_ball_position(): where the red ball is (returns x, y in meters)
+- get_ball_position(): where the {OBJECT} is (returns x, y in meters)
 - get_plate_position(): where the green plate is (returns x, y in meters)
 - pick_at(x, y): pick up the object at that position
 - place_at(x, y): put the held object down at that position
