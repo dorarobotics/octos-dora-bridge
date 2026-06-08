@@ -12,7 +12,21 @@ match ur5e.xml's actuator layout — verified on epyc (set via env vars below).
 from __future__ import annotations
 
 import json
-from typing import Optional
+from typing import Any, Optional
+
+
+def decode_joint_commands(items: list[Any]) -> list[float]:
+    """Decode a joint_commands input into a float vector.
+
+    joint_commands arrives as a RAW float array (``pa.array(.., float32)``), so
+    ``value.to_pylist()`` is already the full vector. (A JSON-encoded single-string
+    list is tolerated as a fallback.) The original bug took ``to_pylist()[0]`` — a
+    single float — then ``list(float)`` crashed, killing the node so no control
+    ever reached the sim.
+    """
+    if len(items) == 1 and isinstance(items[0], str):
+        return list(json.loads(items[0]))
+    return [float(x) for x in items]
 
 
 def merge_control(
@@ -57,9 +71,9 @@ def main() -> None:  # pragma: no cover - requires dora runtime
     for event in node:
         if event["type"] != "INPUT":
             continue
-        val = event["value"].to_pylist()[0]
+        items = event["value"].to_pylist()
         if event["id"] == "joint_commands":
-            last_arm = list(json.loads(val)) if isinstance(val, str) else list(val)
+            last_arm = decode_joint_commands(items)
             out = merge_control(
                 arm_joints=last_arm, gripper_width=None, gripper_index=gripper_index,
                 gripper_open_width=open_width, gripper_ctrl_range=(cmin, cmax),
@@ -67,6 +81,7 @@ def main() -> None:  # pragma: no cover - requires dora runtime
             )
             node.send_output("control_input", pa.array(out))
         elif event["id"] == "gripper_command":
+            val = items[0]
             payload = json.loads(val) if isinstance(val, str) else val
             merged = merge_control(
                 arm_joints=last_arm or [0.0] * gripper_index, gripper_width=payload["width"],
