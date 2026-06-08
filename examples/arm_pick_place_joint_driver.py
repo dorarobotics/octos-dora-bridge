@@ -30,8 +30,8 @@ BASE = os.environ.get("ARM_BRIDGE_URL", "http://127.0.0.1:8768")
 BALL_URL = os.environ.get("BALL_URL", "http://127.0.0.1:8779/ball")
 CONFIGS = os.environ.get("GRASP_CONFIGS", "/home/demo/dorarobotics-test/grasp_configs.json")
 CLOSE_WIDTH = float(os.environ.get("CLOSE_WIDTH", "0.0"))
-PLACE_X = float(os.environ.get("PLACE_X", "0.30"))
-PLACE_Y = float(os.environ.get("PLACE_Y", "0.25"))
+PLACE_X = float(os.environ.get("PLACE_X", "0.25"))
+PLACE_Y = float(os.environ.get("PLACE_Y", "0.0"))
 SETTLE_S = float(os.environ.get("SETTLE_S", "1.5"))
 
 MOVE = "vendor.moveit.arm.move_to_joint_state"

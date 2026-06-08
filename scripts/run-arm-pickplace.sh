@@ -37,7 +37,7 @@ fi
 # less likely to roll out under base-rotation centrifugal force). Only matches
 # inline-flow `env: { ... }` blocks (planner/ik_solver/trajectory_executor); the
 # block-style moveit_arm env is untouched. Only trajectory_executor reads it.
-sed -i "/env: {.*ROBOT_CONFIG_MODULE/ s| }|, EXEC_INTERP_SPEED: \"${EXEC_INTERP_SPEED:-0.1}\" }|" "$YML"
+sed -i "/env: {.*ROBOT_CONFIG_MODULE/ s| }|, EXEC_INTERP_SPEED: \"${EXEC_INTERP_SPEED:-0.3}\" }|" "$YML"
 
 cat >> "$YML" <<YAML
 
@@ -74,7 +74,7 @@ for _ in $(seq 1 30); do curl -fsS -m2 "$BALL" >/dev/null 2>&1 && break; sleep 1
 echo "[pickplace] running joint-space pick-and-place driver…"
 ARM_BRIDGE_URL="$URL" BALL_URL="$BALL" GRASP_CONFIGS="$CONFIGS" \
   CLOSE_WIDTH="${CLOSE_WIDTH:-0.0}" \
-  PLACE_X="${PLACE_X:-0.30}" PLACE_Y="${PLACE_Y:-0.25}" SETTLE_S="${SETTLE_S:-1.5}" \
+  PLACE_X="${PLACE_X:-0.25}" PLACE_Y="${PLACE_Y:-0.0}" SETTLE_S="${SETTLE_S:-1.5}" \
   "$PY" "$BR/examples/arm_pick_place_joint_driver.py"
 
 if [ "$HEADLESS" = "1" ]; then

@@ -23,14 +23,12 @@ HOME = np.array([-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0])
 # Pinch-site world targets. at_ball/at_place sit at ~ball-center height (ball
 # center rests at z=0.028, r=0.028) so the 2F-85 pads straddle the sphere.
 BALL_XY = (0.35, 0.0)
-# Place RADIALLY (same heading, pull in along x) so the carry needs NO base-pan
-# rotation. The gripper holds the ball in a V-cradle that stays put while level
-# but rolls out when the base swings — a radial place keeps the gripper level so
-# the grasp survives the whole carry. (A sideways place at e.g. (0.30,0.25) needs
-# a ~42° base swing that tips the cradle and drops the ball.)
+# Place on the green target marker (site place_target at 0.25,0 — radial, in front
+# of the base on the pick heading). Radial carry = no base-pan rotation, so the
+# gripper stays level and the grasp holds reliably the whole way onto the plate.
 PLACE_XY = (0.25, 0.0)
 CARRY_Z = 0.22
-N_CARRY = 3  # down-pointing waypoints along the carry arc
+N_CARRY = 3  # down-pointing waypoints along the (short, radial) carry
 
 # The live arm undershoots shoulder_lift by ~0.03 rad, raising the actual TCP
 # ~1.7cm above the commanded pinch. Command the grasp ~1.7cm LOWER so the live
@@ -60,8 +58,14 @@ TARGETS += [
 ]
 
 
-def solve(m, d, site, target_xyz, seed, iters=400, pos_w=1.0, down_w=0.5):
-    """Damped least-squares IK: position + make site local z point world -z."""
+def solve(m, d, site, target_xyz, seed, iters=400, pos_w=1.0, rot_w=0.5, target_R=None):
+    """Damped least-squares IK.
+
+    Orientation: if target_R is given, drive the FULL site orientation to it
+    (keeps the gripper's world yaw fixed so the V-cradle valley never rotates and
+    the ball can't roll out during a base-panning carry). Otherwise just make the
+    site local z point world -z (down), leaving yaw free.
+    """
     q = seed.copy()
     target = np.array(target_xyz)
     jacp = np.zeros((3, m.nv))
@@ -72,12 +76,17 @@ def solve(m, d, site, target_xyz, seed, iters=400, pos_w=1.0, down_w=0.5):
         d.qpos[ARM_QPOS] = q
         mujoco.mj_forward(m, d)
         pos = d.site_xpos[site].copy()
-        xmat = d.site_xmat[site].reshape(3, 3)
-        z_axis = xmat[:, 2]  # site local z in world
+        Rc = d.site_xmat[site].reshape(3, 3)  # columns = site axes in world
         e_pos = (target - pos) * pos_w
-        # want z_axis aligned with world -z: error = cross(z_axis, desired)
-        desired_down = np.array([0.0, 0.0, -1.0])
-        e_rot = np.cross(z_axis, desired_down) * down_w
+        if target_R is not None:
+            # standard orientation servo error: 0.5 * sum cross(current_axis, target_axis)
+            e_rot = 0.5 * (
+                np.cross(Rc[:, 0], target_R[:, 0])
+                + np.cross(Rc[:, 1], target_R[:, 1])
+                + np.cross(Rc[:, 2], target_R[:, 2])
+            ) * rot_w
+        else:
+            e_rot = np.cross(Rc[:, 2], np.array([0.0, 0.0, -1.0])) * rot_w
         err = np.concatenate([e_pos, e_rot])
         if np.linalg.norm(e_pos) < 1e-3 and np.linalg.norm(e_rot) < 1e-2:
             break
@@ -87,9 +96,7 @@ def solve(m, d, site, target_xyz, seed, iters=400, pos_w=1.0, down_w=0.5):
         q = np.clip(q + dq, lower, upper)
     d.qpos[ARM_QPOS] = q
     mujoco.mj_forward(m, d)
-    final_pos = d.site_xpos[site].copy()
-    z_axis = d.site_xmat[site].reshape(3, 3)[:, 2]
-    return q, final_pos, z_axis
+    return q, d.site_xpos[site].copy(), d.site_xmat[site].reshape(3, 3).copy()
 
 
 def main() -> None:
@@ -97,15 +104,23 @@ def main() -> None:
     d = mujoco.MjData(m)
     site = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "pinch")
 
+    # Establish the grasp orientation once (down-pointing at the ball), then hold
+    # that SAME full world orientation for every grasp/carry/place waypoint so the
+    # gripper never rolls about vertical during the base-panning carry.
+    _, _, R_grasp = solve(m, d, site, [BALL_XY[0], BALL_XY[1], 0.03 - GRASP_BIAS], HOME.copy())
+
     configs = {}
     seed = HOME.copy()
     for name, tgt in TARGETS:
-        q, pos, zax = solve(m, d, site, tgt, seed)
-        seed = q  # warm-start next from this solution
+        # above_ball is pre-grasp (gripper open, approaching) — down-only is fine;
+        # everything from the grasp onward holds the fixed grasp orientation.
+        tR = None if name == "above_ball" else R_grasp
+        q, pos, Rc = solve(m, d, site, tgt, seed, target_R=tR)
+        seed = q
         err = float(np.linalg.norm(np.array(tgt) - pos))
         print(
             f"{name}: target={tgt} reached=[{pos[0]:.3f},{pos[1]:.3f},{pos[2]:.3f}] "
-            f"err={err*100:.1f}cm down_z={zax[2]:.2f} q={[round(float(x),4) for x in q]}",
+            f"err={err*100:.1f}cm down_z={Rc[2,2]:.2f} q={[round(float(x),4) for x in q]}",
             flush=True,
         )
         configs[name] = [round(float(x), 5) for x in q]
