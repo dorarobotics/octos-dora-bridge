@@ -73,17 +73,30 @@ arm qvel = qvel[6:12]             RebotConfig.ARM_QPOS_START = 7
    bash ~/dorarobotics-test/run-rebot-agent.sh "put the red block on the green plate"
    ```
 
-## Live-tuning checklist (expected during first bring-up)
+## Status: live-validated on epyc (2026-06-08)
 
-These were set from the MJCF geometry and **need validation against the live FK**:
-- **`pinch` site z** in `rebot_pickplace.xml` (initial `0 0 0.165` in link6 frame) —
-  must land at the closed-finger grasp center. Adjust until a down-pointing IK
-  solution has the fingers straddling the cube.
-- **`ARM_HOME`** / keyframe arm pose — must be a non-singular seed from which the IK
-  reaches the workspace. Override per-run with `ARM_HOME="j1,…,j6"`.
-- **`GRASP_Z` / `APPROACH_Z` / `LIFT_ZS`** — cube center rests at z≈0.02; defaults
-  `0.02 / 0.18 / 0.06,0.10,0.18`.
-- **Object & plate XY** — `red_box` at (0.35,0), `place_target` at (0.25,0); move
-  both into reBot's comfortable reach if needed.
-- **Gripper close width / force** — `GRIP_CLOSE_W=0.0` drives fingers onto the cube;
-  if it slips, lower the close target or raise the `gripper` actuator force.
+`run-rebot-pickplace.sh` picks the red cube and places it on the green target
+**1.3 cm from center** in MuJoCo. Two fixes were needed during bring-up:
+
+1. **Arm actuators were too soft (THE fix).** reBot's stock position gains
+   (`joint3 kp=10`, `j4=50`, `j5=20`) were tuned for gravity-comp teleop; under
+   position control the arm **sagged** — the commanded grasp landed ~5 cm short
+   and into the floor, so the gripper closed on air (0 finger-box contacts).
+   Stiffened to `kp` 3000 (j1-3) / 800 (j4-6) with force ranges widened to ±300
+   (actuators + joint `actuatorfrcrange`). Arm now tracks to <0.2° / pinch within
+   1 mm. *(commit `45c860a`)*
+2. **Grasp orientation was seeded from HOME.** `pick_at` solved the grasp
+   orientation directly from the far HOME seed → local minimum (24 cm off). Now it
+   seeds from the reliably-reachable approach pose. *(commit `e0b2c7a`)*
+
+The **`pinch` site** (`0 0 0.165` in link6 frame) and **`GRASP_Z=0.02`** turned out
+correct as set — `mj_geomDistance` confirmed a closing gripper penetrates the cube
+by ~1.1 cm (firm clamp) once the arm actually reaches the pose.
+
+## Knobs to retune if you move things
+
+- **Object & plate XY** — `red_box` at (0.35,0), `place_target` at (0.25,0); both
+  within reBot's reach. Move via the XML / `PLATE_X/Y`.
+- **`GRASP_Z` / `APPROACH_Z` / `LIFT_ZS`** — defaults `0.02 / 0.18 / 0.06,0.10,0.18`.
+- **`ARM_HOME`** — IK seed; default `0,-1.0,-1.5,0,0,0`. Override `ARM_HOME="j1,…,j6"`.
+- **Gripper close** — `GRIP_CLOSE_W=0.0` drives the fingers onto the cube.
