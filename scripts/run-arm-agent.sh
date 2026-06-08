@@ -77,11 +77,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# ---- robust dora bring-up: ensure the coordinator actually answers before start ----
-echo "[agent] resetting dora daemon…"
-pkill -f octos_spec_bridge 2>/dev/null || true; pkill -f ball_state.py 2>/dev/null || true
+# ---- robust dora bring-up: kill ALL node orphans (a prior run killed by `timeout`
+#      leaves mujoco/moveit_arm/etc. running, which slows or wedges the next boot) ----
+echo "[agent] resetting dora daemon + killing node orphans + freeing ports…"
+pkill -9 -f "dora_mujoco|move_group_demo|moveit_arm_node|octos_spec_bridge|ball_state|trajectory_execution|planning_scene" 2>/dev/null || true
+# Free the bridge + ball_state ports. A stale bridge holding 8768 makes the new
+# bridge exit("address already in use") yet still answers /healthz — fooling the
+# wait below and tearing down the dataflow mid-run. Kill whatever holds the ports.
+fuser -k 8768/tcp 8779/tcp 2>/dev/null || true
 dora destroy >/dev/null 2>&1 || true
-sleep 2
+sleep 3
+fuser 8768/tcp >/dev/null 2>&1 && die "port 8768 still held after cleanup (kill it: fuser -k 8768/tcp)"
 dora up >/dev/null 2>&1 || true
 ready=0
 for _ in $(seq 1 15); do
@@ -95,10 +101,19 @@ echo "[agent] starting dataflow (log: $LOG)…"
 dora start "$YML" --attach > "$LOG" 2>&1 &
 DORA_PID=$!
 
-echo "[agent] waiting for bridge + ball server…"
-for _ in $(seq 1 90); do curl -fsS -m2 "$URL/healthz" >/dev/null 2>&1 && break; \
-  kill -0 "$DORA_PID" 2>/dev/null || { echo "[agent] dataflow exited early:"; tail -30 "$LOG"; exit 1; }; sleep 1; done
-for _ in $(seq 1 30); do curl -fsS -m2 "$BALL" >/dev/null 2>&1 && break; sleep 1; done
+# Node bring-up (MuJoCo + 9 nodes) can take a few minutes — wait up to 5 min, and
+# HARD-FAIL if the bridge never answers (do NOT run the agent against a dead bridge).
+echo "[agent] waiting for bridge + ball server (up to 5 min)…"
+bridge_ok=0
+for _ in $(seq 1 300); do
+  curl -fsS -m2 "$URL/healthz" >/dev/null 2>&1 && { bridge_ok=1; break; }
+  kill -0 "$DORA_PID" 2>/dev/null || { echo "[agent] dataflow exited early:"; tail -30 "$LOG"; exit 1; }
+  sleep 1
+done
+[ "$bridge_ok" = 1 ] || die "bridge /healthz never came up — see $LOG (tail: $(tail -3 "$LOG"))"
+ball_ok=0
+for _ in $(seq 1 30); do curl -fsS -m2 "$BALL" >/dev/null 2>&1 && { ball_ok=1; break; }; sleep 1; done
+[ "$ball_ok" = 1 ] || die "ball_state server never came up — see $LOG"
 
 echo
 echo "[agent] >>> handing this sentence to the octos agent ($OLLAMA_MODEL):"
