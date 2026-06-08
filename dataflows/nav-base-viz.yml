@@ -1,0 +1,81 @@
+# Visual nav-base demo: octos (HTTP :8769) -> nav-base-dora-node -> a kinematic
+# toy sim -> a live rerun top-down viewer. Same nav_base + bridge as
+# nav-base-bridge.yaml; fake_localization + fake_planner are replaced by a single
+# moving toy sim (examples/nav_toy_sim.py) and a rerun viewer (examples/nav_rerun_viz.py).
+#
+# The toy sim is NOT dora-nav — it's a unicycle stand-in so the nav-base verbs have
+# something visible to drive. Run from the octos-dora-bridge dir on a host with a
+# display (epyc remote desktop, DISPLAY=:0). Needs rerun-sdk + numpy in bridge/.venv.
+#
+# Usage:
+#   DISPLAY=:0 dora up
+#   DISPLAY=:0 dora start dataflows/nav-base-viz.yml --attach
+
+nodes:
+  - id: toy_sim
+    path: ./venv-python
+    args: ../examples/nav_toy_sim.py
+    env:
+      TOY_SIM_DT: "0.05"
+    inputs:
+      tick: dora/timer/millis/50
+      goal: nav_base/dora_nav_goal
+      cancel: nav_base/dora_nav_cancel
+      cmd_vel: nav_base/dora_nav_cmd_vel
+    outputs:
+      - pose
+      - status
+      - obstacles
+
+  - id: nav_base
+    path: ./venv-python
+    args: -m nav_base_node
+    env:
+      ROBOT_ID: nav-base-001
+      WAYPOINTS_PATH: "load_path.yml"
+      HEARTBEAT_TIMEOUT_MS: "0"     # disabled for sim (no heartbeat client)
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_request: bridge/cmd_request
+      dora_nav_pose: toy_sim/pose
+      dora_nav_status: toy_sim/status
+      dora_nav_obstacles: toy_sim/obstacles
+    outputs:
+      - cmd_response
+      - capabilities
+      - state
+      - safety_event
+      - dora_nav_goal
+      - dora_nav_cancel
+      - dora_nav_cmd_vel
+
+  - id: rerun_viz
+    path: ./venv-python
+    args: ../examples/nav_rerun_viz.py
+    env:
+      DISPLAY: ":0"
+    inputs:
+      pose: toy_sim/pose
+      obstacles: toy_sim/obstacles
+      status: toy_sim/status
+      goal: nav_base/dora_nav_goal
+      safety_event: nav_base/safety_event
+    outputs:
+      - ready
+
+  - id: bridge
+    path: ./venv-python
+    args: -m octos_spec_bridge
+    env:
+      ROBOT_ID: nav-base-001
+      HTTP_HOST: "127.0.0.1"
+      HTTP_PORT: "8769"
+      CMD_TIMEOUT_S: "30"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_response: nav_base/cmd_response
+      capabilities: nav_base/capabilities
+      state: nav_base/state
+      safety_event: nav_base/safety_event
+    outputs:
+      - cmd_request
