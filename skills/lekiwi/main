@@ -36,7 +36,7 @@ def _post(verb, **args):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urllib.request.urlopen(req, timeout=5) as resp:
         return json.loads(resp.read().decode())
 
 
@@ -63,7 +63,11 @@ def main():
             if not r.get("ok"):
                 _emit(f"set_velocity failed: code={r.get('code')} msg={r.get('msg')}", False)
             time.sleep(seconds)
-            _post("vendor.dora_nav.base.stop")
+            try:
+                _post("vendor.dora_nav.base.stop")
+            except Exception as exc:  # noqa: BLE001
+                _emit(f"WARNING: moved for {seconds}s but the stop call failed ({exc}); "
+                      f"the base may STILL BE MOVING — call stop_base now (bridge {BRIDGE})", False)
             _emit(f"moved (linear={linear} m/s, angular={angular} rad/s) for {seconds}s, "
                   f"then stopped. pose now: {_pose_str()}", True)
         elif tool == "stop_base":
