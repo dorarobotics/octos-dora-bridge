@@ -76,7 +76,13 @@ hard_teardown() {
   dora stop --grace 2 >/dev/null 2>&1
   dora destroy   >/dev/null 2>&1
   sleep 2
-  pkill -9 -f "dora-daemon|dora-coordinator" 2>/dev/null
+  # The dora coordinator/daemon processes are literally "dora coordinator"/"dora
+  # daemon" (a SPACE, not a hyphen). Matching the hyphenated form kills nothing, so
+  # daemons accumulate across runs and multiple daemons each spawn the dataflow ->
+  # double-builds, :8768/:8779 port collisions, and a viewer restart-loop. Kill the
+  # real names so exactly one daemon ever runs.
+  pkill -9 -f "dora daemon" 2>/dev/null
+  pkill -9 -f "dora coordinator" 2>/dev/null
   pkill -9 -f "dora_mujoco|moveit_arm_node|ball_state|trajectory_execution|planning_scene|move_group_demo|octos_spec_bridge|skill_pickplace" 2>/dev/null
   if command -v fuser >/dev/null; then
     for _ in 1 2 3 4 5 6; do fuser -k 8768/tcp 8779/tcp >/dev/null 2>&1; sleep 1; done
