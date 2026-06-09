@@ -36,6 +36,9 @@ nodes:
       GRASP_CLOSE_CTRL: "255"
       GRASP_OPEN_CTRL: "0"
       GRASP_PROXIMITY: "0.20"
+      # The UR5e grasps ~8 cm off the gripper axis; snap the ball onto the approach axis
+      # at latch so it's carried at the TCP and placed accurately (else ~8 cm place error).
+      GRASP_SNAP_AXIAL: "1"
     inputs:
       tick: dora/timer/millis/10
       control_input: gripper_merge/control_input
