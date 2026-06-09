@@ -158,6 +158,62 @@ MODEL_NAME=<...>/so101_pickplace.xml ROBOT_MANIFEST=<...>/manifests/so101.json \
 
 ---
 
+## Run it as an octos skill (full Agentic OS)
+
+The launcher above runs the pick-and-place directly. To instead drive the robot from
+**[octos](https://github.com/dorarobotics/octos)** — the Agentic OS — as a proper
+**app-skill**, so a user just chats *"pick up the cube and place it on the green
+plate"*:
+
+### What an octos skill is
+
+A skill is a directory octos loads from `~/.octos/skills/<name>/` with three parts —
+this repo ships all three under `skills/so101/` (and `skills/rebot/`):
+
+| File | Role |
+|---|---|
+| `SKILL.md` | YAML frontmatter = **lifecycle hooks** octos runs (`init` brings the dora dataflow up, `ready_check` waits on the bridge `/healthz`, `emergency_shutdown` e-stops) + the doc the LLM reads |
+| `manifest.json` | declares the **tools** (`get_object_position`, `get_plate_position`, `pick_at`, `place_at`) with JSON Schema |
+| `main` | the executable octos **spawns per tool call** — `main <tool>` with JSON args on stdin → `{"output":..,"success":..}` on stdout. It dispatches to the `arm_skills` pack (IK + grasp logic over the bridge), so one tool call = a full sub-action |
+
+### Steps (on a host where octos runs)
+
+```bash
+# 1. install octos (Agentic OS) + give it an LLM provider
+curl -fsSL https://github.com/dorarobotics/octos/releases/latest/download/install.sh | bash
+export ANTHROPIC_API_KEY=...          # or configure a local Ollama provider
+
+# 2. install the dora-side runtime (same 3 repos as above; e.g. via setup.sh)
+#    — gives you the bridge, vendor node, dora-moveit2, in a venv with mujoco
+
+# 3. sideload the skill into octos
+cp -r octos-dora-bridge/skills/so101 ~/.octos/skills/so101     # (or skills/rebot)
+octos skills list                                              # should show so101
+
+# 4. tell the skill where the arm pack + model live (env octos spawns `main` with).
+#    main needs a python that can import arm_skills (mujoco/numpy) — point octos's
+#    skill interpreter at your venv, or put it first on PATH.
+export SKILL_PACK=<parent>/moveit-arm-dora-node/skill_pack
+export MODEL_NAME=<parent>/dora-moveit2/examples/move_group_demo/models/so101_pickplace.xml
+export ROBOT_MANIFEST=$SKILL_PACK/manifests/so101.json
+
+# 5. run
+octos serve            # if not already running as a service
+octos chat
+> pick up the red cube and place it on the green plate
+```
+
+octos runs the skill's `init` hook (starts `dora start dataflows/so101-mujoco-bridge.yaml`
+→ bridge on `:8768`), the LLM calls `get_object_position` → `pick_at` → `get_plate_position`
+→ `place_at`, and `main` drives the arm for each. Adding a different robot = drop in its
+`skills/<robot>/` (same `main`, its own `manifest.json` + `SKILL.md`) — no octos changes.
+
+> **Note:** octos spawns a fresh `main` process per tool call, so the grasp state between
+> `pick_at` and `place_at` is persisted to `/tmp/octos_grasp_<skill>.json` and restored —
+> the robot keeps physically holding the object between calls. This is handled in `main`.
+
+---
+
 ## How it works (one paragraph)
 
 `skill_pickplace.py` (in `moveit-arm-dora-node/skill_pack`) senses the cube and
