@@ -33,7 +33,7 @@ nodes:
 
   - id: planning_scene
     path: ./venv-python
-    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/planning_scene.py
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/move_group_demo/nodes/planning_scene.py
     env:
       ROBOT_CONFIG_MODULE: "move_group_demo.config.ur5e"
     inputs:
@@ -46,7 +46,7 @@ nodes:
 
   - id: planner
     path: ./venv-python
-    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/planner.py
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/move_group_demo/nodes/planner.py
     env:
       ROBOT_CONFIG_MODULE: "move_group_demo.config.ur5e"
     inputs:
@@ -58,7 +58,7 @@ nodes:
 
   - id: ik_solver
     path: ./venv-python
-    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/ik_solver.py
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/move_group_demo/nodes/ik_solver.py
     env:
       ROBOT_CONFIG_MODULE: "move_group_demo.config.ur5e"
       IK_SOLVER_TYPE: "de"   # pure-numpy NumericalIKSolver; no tracikpy needed
@@ -70,7 +70,7 @@ nodes:
 
   - id: trajectory_executor
     path: ./venv-python
-    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/trajectory_executor.py
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/move_group_demo/nodes/trajectory_executor.py
     env:
       ROBOT_CONFIG_MODULE: "move_group_demo.config.ur5e"
     inputs:
