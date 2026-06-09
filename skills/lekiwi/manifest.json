@@ -1,0 +1,32 @@
+{
+  "name": "lekiwi",
+  "version": "0.1.0",
+  "author": "dorarobotics",
+  "description": "Drive a LeKiwi mobile base in simulation: move (forward/back/turn), stop, and read pose over the SPEC-VENDOR-NODE-V1 bridge.",
+  "timeout_secs": 30,
+  "requires_network": true,
+  "tools": [
+    {
+      "name": "move_base",
+      "description": "Drive the mobile base for a fixed duration then stop. linear>0 forward, linear<0 back; angular>0 turn left, angular<0 turn right. 'move forward' -> linear=0.3, angular=0, seconds=2.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "linear": {"type": "number", "description": "forward/back speed m/s (+forward, -back); 0 to only turn"},
+          "angular": {"type": "number", "description": "turn rate rad/s (+left, -right); 0 to go straight"},
+          "seconds": {"type": "number", "description": "drive duration before auto-stop (default 2)"}
+        }
+      }
+    },
+    {
+      "name": "stop_base",
+      "description": "Immediately stop the mobile base.",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "get_base_pose",
+      "description": "Return the base's current pose {x, y, theta} in meters/radians.",
+      "input_schema": {"type": "object", "properties": {}}
+    }
+  ]
+}
