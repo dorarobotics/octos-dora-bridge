@@ -1,0 +1,44 @@
+{
+  "name": "rebot",
+  "version": "0.1.0",
+  "author": "dorarobotics",
+  "description": "Control a reBotArm B601-DM (6-DOF) arm: sense the object/plate and run high-level pick-and-place over the SPEC-VENDOR-NODE-V1 bridge.",
+  "timeout_secs": 120,
+  "requires_network": true,
+  "tools": [
+    {
+      "name": "get_object_position",
+      "description": "Return the current (x, y) position of the object (red block) the arm should pick, in meters. Call this before pick_at.",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_plate_position",
+      "description": "Return the (x, y) position of the green target plate to place the object on, in meters.",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "pick_at",
+      "description": "Pick up the object at (x, y) meters: approach from above, grasp, and lift. Use the coordinates from get_object_position.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "x": { "type": "number", "description": "object x in meters (robot base frame)" },
+          "y": { "type": "number", "description": "object y in meters" }
+        },
+        "required": ["x", "y"]
+      }
+    },
+    {
+      "name": "place_at",
+      "description": "Carry the currently-held object to (x, y) meters and release it. Call pick_at first. Use the coordinates from get_plate_position.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "x": { "type": "number", "description": "place x in meters" },
+          "y": { "type": "number", "description": "place y in meters" }
+        },
+        "required": ["x", "y"]
+      }
+    }
+  ]
+}
