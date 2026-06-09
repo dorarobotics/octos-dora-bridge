@@ -22,7 +22,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 from lekiwi_scene import build_scene  # noqa: E402
 
-W, H = 720, 540
+W, H = 640, 480   # MuJoCo's default offscreen framebuffer max
 
 
 def main() -> int:

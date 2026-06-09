@@ -27,6 +27,11 @@ from lekiwi_kinematics import LeKiwiBase
 from lekiwi_scene import BASE_Z, build_scene
 
 DRIVE_ACTUATORS = ("drive_motor_1", "drive_motor_2", "drive_motor_3")
+WHEEL_JOINTS = (
+    "ST3215_Servo_Motor-v1-2_Hub---Servo",
+    "ST3215_Servo_Motor-v1-1_Hub-2---Servo",
+    "ST3215_Servo_Motor-v1_Revolute-40",
+)
 OBSTACLES: list = []   # empty map for milestone 1 (nav_base runs with NAV_FAKE_MAP=1)
 
 
@@ -61,11 +66,18 @@ def main() -> None:  # pragma: no cover — needs a running dora daemon + mujoco
     drive_adr = [
         mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, a) for a in DRIVE_ACTUATORS
     ]
+    # The thin omniwheels have ~0 inertia about their spin axis, so a stiff
+    # velocity actuator drives QACC to NaN. Give the wheel DOFs armature + damping
+    # (runtime model edit) so mj_step stays stable.
+    for j in WHEEL_JOINTS:
+        wdof = model.jnt_dofadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, j)]
+        model.dof_armature[wdof] = 0.05
+        model.dof_damping[wdof] = 0.2
 
     base = LeKiwiBase()
     node = Node()
     traj = [] if traj_path else None
-    print(f"[lekiwi_sim] virtual omni-drive up (n_sub={n_sub}, traj={'on' if traj else 'off'})", flush=True)
+    print(f"[lekiwi_sim] virtual omni-drive up (n_sub={n_sub}, traj={'on' if traj_path else 'off'})", flush=True)
 
     def emit(out_id: str, payload: Any) -> None:
         node.send_output(out_id, pa.array([json.dumps(payload)]))
