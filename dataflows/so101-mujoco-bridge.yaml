@@ -59,7 +59,7 @@ nodes:
       trajectory: planner/trajectory
       cartesian_trajectory: moveit_arm/cartesian_trajectory
       joint_positions: mujoco_sim/joint_positions
-      tick: dora/timer/millis/50
+      tick: dora/timer/millis/20   # 50 Hz executor — brisk arm motion in the viewer
     outputs: [joint_commands, execution_status]
 
   - id: gripper_merge
