@@ -40,7 +40,9 @@ def main() -> None:  # pragma: no cover — needs a running dora daemon + mujoco
     dt = float(os.environ.get("SIM_DT", "0.05"))
     scene_xml = build_scene(
         os.path.join(sim_dir, "mjcf_lcmm_robot.xml"),
-        meshdir=os.path.join(sim_dir, "meshes"),
+        # meshdir is the model's own dir: the MJCF mesh file= paths already
+        # include the "meshes/" prefix, so pointing at sim_dir/meshes doubles it.
+        meshdir=sim_dir,
     )
     model = mujoco.MjModel.from_xml_string(scene_xml)
     data = mujoco.MjData(model)
