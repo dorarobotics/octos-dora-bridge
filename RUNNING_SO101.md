@@ -45,6 +45,18 @@ done
 
 ## Setup (one time)
 
+**Quick path — one command.** From inside an `octos-dora-bridge` checkout:
+
+```bash
+bash setup.sh          # clones the other two repos as siblings, makes a venv, installs deps
+# WITH_AGENT=1 bash setup.sh   # also sets up the optional LLM-agent variant (see below)
+```
+
+`setup.sh` is idempotent (re-running skips what's already there) and prints the exact
+run command at the end. It can't install the `dora` CLI for you — see the note below.
+
+**Manual path**, if you prefer to do it yourself:
+
 ```bash
 cd <parent>
 python3 -m venv venv && source venv/bin/activate
@@ -101,10 +113,48 @@ OK: placed the object at (0.120, 0.000) — ~1 cm from target.
 | `PYTHON` | `python3` | interpreter (point at your venv) |
 | `DORA_MOVEIT2` | `../dora-moveit2` | path to the dora-moveit2 checkout |
 | `MOVEIT_ARM` | `../moveit-arm-dora-node` | path to the arm node checkout |
-| `EXEC_INTERP_SPEED` | `0.45` | motion speed (higher = faster; `1.0` ≈ 4×) |
+| `EXEC_INTERP_SPEED` | `0.5` | motion speed (higher = faster; `1.0` ≈ 4×) |
 | `GRIP_DWELL` | `3.0` | pause (seconds) at the grasp |
 | `HEADLESS` | `0` | `1` = no viewer (CI/tuning) |
 | `AUTO` | `0` | `1` = skip the ENTER prompt, pick immediately |
+
+---
+
+## Optional: drive it from a sentence (LLM-agent variant)
+
+The default demo above is **deterministic** (a fixed pick→place script) and needs
+nothing beyond the three repos. There's also an **agent** variant (`arm_agent.py`)
+where a local LLM reads a sentence like *"pick up the red cube and place it on the
+green plate"* and sequences the skill tools itself. It needs just two things:
+
+1. **`openai`** (the provider client) — the agent SDK itself, `octos_py`, is already
+   **vendored** in `moveit-arm-dora-node/skill_pack/octos_py/`, so there's no extra
+   clone (see that folder's `VENDORED.md` for origin):
+
+   ```bash
+   pip install openai
+   ```
+
+2. **Ollama** running a local model:
+
+   ```bash
+   # install Ollama from https://ollama.com, then:
+   ollama pull qwen3:8b
+   ollama serve        # serves an OpenAI-compatible API on :11434
+   ```
+
+`WITH_AGENT=1 bash setup.sh` installs `openai` and reminds you about Ollama. No API
+keys are involved — the agent talks to your **local** Ollama (`api_key="ollama"` is a
+placeholder); `OPENAI_API_KEY` is only read if you repoint the provider at OpenAI.
+
+To drive it from a sentence, run `arm_agent.py` (in `skill_pack`) against a running
+bridge, e.g.:
+
+```bash
+ARM_BRIDGE_URL=http://127.0.0.1:8768 BALL_URL=http://127.0.0.1:8779/ball \
+MODEL_NAME=<...>/so101_pickplace.xml ROBOT_MANIFEST=<...>/manifests/so101.json \
+  <parent>/venv/bin/python <...>/skill_pack/arm_agent.py "pick up the red cube and place it on the green plate"
+```
 
 ---
 
