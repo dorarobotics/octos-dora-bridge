@@ -68,7 +68,7 @@ class LeKiwiBase:
         for beta in WHEEL_ANGLES:
             v_tangential = -math.sin(beta) * vx + math.cos(beta) * vy + BASE_RADIUS * omega
             out.append(v_tangential / WHEEL_RADIUS)
-        return (out[0], out[1], out[2])
+        return tuple(out)
 
     @property
     def pose(self) -> dict[str, float]:

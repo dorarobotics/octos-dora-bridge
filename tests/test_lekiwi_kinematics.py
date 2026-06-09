@@ -59,6 +59,8 @@ def test_wheel_velocities_forward_are_nonzero_and_finite():
     assert len(w) == 3
     assert all(math.isfinite(v) for v in w)
     assert any(abs(v) > 1e-6 for v in w)
+    # standard omniwheel geometry: forward motion spins wheel 0 negative, 1 & 2 positive
+    assert w[0] < 0 and w[1] > 0 and w[2] > 0
 
 
 def test_pose_dict_shape_and_rounding():
@@ -68,3 +70,9 @@ def test_pose_dict_shape_and_rounding():
     p = base.pose
     assert set(p) == {"x", "y", "theta"}
     assert p["x"] == round(p["x"], 4)
+
+
+def test_sim_module_imports_and_has_main():
+    import importlib
+    mod = importlib.import_module("lekiwi_mujoco_sim")
+    assert callable(mod.main)
