@@ -84,7 +84,7 @@ nodes:
 
   - id: gripper_merge
     path: ./venv-python
-    args: ../examples/gripper_merge.py
+    args: ${SKILL_PACK}/sim/gripper_merge.py
     inputs:
       joint_commands: trajectory_executor/joint_commands
       gripper_command: moveit_arm/gripper_command

@@ -61,8 +61,40 @@ command -v "$PYTHON" >/dev/null || die "PYTHON '$PYTHON' not found"
 
 mkdir -p "$WORK"
 # dora runs each node via the interpreter at './venv-python' relative to the dataflow's
-# working dir; point it at the chosen PYTHON.
-ln -sf "$("$PYTHON" -c 'import sys;print(sys.executable)')" "$WORK/venv-python"
+# working dir. This MUST be a wrapper *script*, not a symlink: dora resolves symlinks
+# before exec, so a symlink to a venv's python lands on the resolved base interpreter
+# (e.g. /usr/bin/python3) and Python loses venv detection (no pyvenv.cfg next to the
+# resolved path) — it then imports the *system/user* dora (e.g. ~/.local 0.3.x), whose
+# message format mismatches the 0.2.1 CLI ("message format v0.6.0 ... expected v0.2.1").
+# Exec-ing $PYTHON by its (unresolved) path from a script keeps venv site-packages.
+cat > "$WORK/venv-python" <<EOF
+#!/bin/bash
+exec "$("$PYTHON" -c 'import sys;print(sys.executable)')" "\$@"
+EOF
+chmod +x "$WORK/venv-python"
+
+# --- tame dora's embedded zenoh -----------------------------------------------
+# dora uses zenoh only for cross-MACHINE data routing; node<->daemon comm is TCP, so a
+# single-machine dataflow needs no peer discovery. On a box with many interfaces (e.g.
+# tailscale/docker), zenoh's multicast+gossip scouting discovers unrelated peers and can
+# panic (PoisonError) — taking trajectory_executor/gripper_merge down. Disable scouting
+# and pin zenoh to loopback. dora reads this via $ZENOH_CONFIG. Override by pre-setting it.
+if [ -z "${ZENOH_CONFIG:-}" ]; then
+  cat > "$WORK/zenoh.json5" <<'Z'
+{
+  mode: "peer",
+  scouting: { multicast: { enabled: false }, gossip: { enabled: false } },
+  listen:  { endpoints: ["tcp/127.0.0.1:0"] },
+  connect: { endpoints: [] },
+}
+Z
+  export ZENOH_CONFIG="$WORK/zenoh.json5"
+fi
+
+# The move_group_demo nodes import `move_group_demo.config.<robot>`; that package lives
+# under examples/ and isn't pip-installed, so put its parent on PYTHONPATH (inherited by
+# nodes the daemon spawns).
+export PYTHONPATH="$DORA_MOVEIT2/examples/move_group_demo${PYTHONPATH:+:$PYTHONPATH}"
 
 # --- hard teardown (daemon-level): a leftover dora daemon respawns the bridge on
 #     :8768, so a relaunch's bridge can't bind. Kill the daemon + free the ports.

@@ -84,7 +84,7 @@ nodes:
 
   - id: gripper_merge
     path: ./venv-python
-    args: ../examples/gripper_merge.py
+    args: ${SKILL_PACK}/sim/gripper_merge.py
     env:
       GRIPPER_CTRL_INDEX: "6"      # 6 arm actuators, gripper is actuator #7
       GRIPPER_OPEN_WIDTH: "0.085"  # skill opens with width=0.085 -> frac=1 -> open
