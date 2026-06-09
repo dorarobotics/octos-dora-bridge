@@ -11,6 +11,7 @@ from __future__ import annotations
 ROOT_BODY_TAG = '<body name="base_plate_layer1-v5-1" pos="0.0 0.0 0.0" euler="-0.0 0.0 -0.0">'
 COMPILER_TAG = '<compiler angle="radian" />'
 WORLDBODY_OPEN = "<worldbody>"
+WORLDBODY_CLOSE = "</worldbody>"
 BASE_Z = 0.06   # m — lift the base so the wheels rest on the floor
 
 _FLOOR = (
@@ -42,14 +43,16 @@ def build_scene(src_mjcf: str, meshdir: str) -> str:
     # speeds (motors 7/8/9). The shipped model uses <motor> (torque); velocity
     # control lets ctrl = target wheel angular speed (rad/s).
     xml = xml.replace('<motor name="drive_motor_', '<velocity kv="8" name="drive_motor_')
-    # 2) free joint on the base root (raised so wheels sit on the floor)
+    # 2) floor
+    xml = xml.replace(WORLDBODY_OPEN, WORLDBODY_OPEN + _FLOOR, 1)
+    # 3) The MJCF has THREE sibling top-level bodies (base_plate_layer1 = wheels,
+    # base_plate_layer2 = arm mount, drive_motor_mount-v4). Wrap them ALL in one
+    # `chassis` body carrying the free joint, so the whole robot moves together
+    # (a free joint on just base_plate_layer1 would drive the base off the arm).
     xml = xml.replace(
         ROOT_BODY_TAG,
-        '<body name="base_plate_layer1-v5-1" pos="0.0 0.0 '
-        f'{BASE_Z}" euler="-0.0 0.0 -0.0">\n            '
-        '<freejoint name="base_free"/>',
+        f'<body name="chassis" pos="0 0 0">\n        <freejoint name="base_free"/>\n        {ROOT_BODY_TAG}',
         1,
     )
-    # 3) floor
-    xml = xml.replace(WORLDBODY_OPEN, WORLDBODY_OPEN + _FLOOR, 1)
+    xml = xml.replace(WORLDBODY_CLOSE, f"        </body>\n    {WORLDBODY_CLOSE}", 1)
     return xml

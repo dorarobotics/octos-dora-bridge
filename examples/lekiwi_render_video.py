@@ -44,16 +44,16 @@ def main() -> int:
     renderer = mujoco.Renderer(model, H, W)
     cam = mujoco.MjvCamera()
     mujoco.mjv_defaultFreeCamera(model, cam)
-    cam.distance, cam.elevation, cam.azimuth = 2.4, -22.0, 130.0
+    # FIXED camera centered on the motion area so translation is visible (a
+    # base-following camera on a plain floor would look stationary).
+    cam.lookat[0], cam.lookat[1], cam.lookat[2] = 0.4, 0.4, 0.1
+    cam.distance, cam.elevation, cam.azimuth = 3.6, -25.0, 130.0
 
     writer = imageio.get_writer(out_path, fps=fps, macro_block_size=None)
     try:
         for q in traj:
             data.qpos[:] = q
             mujoco.mj_forward(model, data)
-            cam.lookat[0] = q[base_qadr]      # follow base x
-            cam.lookat[1] = q[base_qadr + 1]  # follow base y
-            cam.lookat[2] = 0.1
             renderer.update_scene(data, cam)
             writer.append_data(renderer.render())
     finally:
