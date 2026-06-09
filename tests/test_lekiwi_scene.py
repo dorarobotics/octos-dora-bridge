@@ -17,6 +17,7 @@ LEKIWI_DIR = os.environ.get(
 SRC = os.path.join(LEKIWI_DIR, "mjcf_lcmm_robot.xml")
 
 
+@pytest.mark.skipif(not os.path.exists(SRC), reason="LeKiwi-sim MJCF not present")
 def test_build_scene_injects_free_joint_and_floor():
     xml = build_scene(SRC, meshdir=os.path.join(LEKIWI_DIR, "meshes"))
     assert '<freejoint name="base_free"/>' in xml
