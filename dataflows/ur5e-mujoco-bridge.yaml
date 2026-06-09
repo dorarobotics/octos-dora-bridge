@@ -23,6 +23,19 @@ nodes:
     env:
       MUJOCO_HEADLESS: "1"
       MODEL_NAME: ${DORA_MOVEIT2}/examples/move_group_demo/models/ur5e.xml
+      # Manipulation scene: the first freejoint is the ball (the object), so the nav
+      # car-base yaw spring must be off or it destabilizes the ball -> sim auto-resets
+      # -> arm pinned at zero and never reaches the ball.
+      DISABLE_BASE_SPRING: "1"
+      # Sim grasp: the Robotiq 2F-85 can't hold a free sphere through a carry in MuJoCo,
+      # so the sim kinematically attaches the ball to the palm on gripper close (released
+      # on open). close/open ctrl are the Robotiq tendon extremes (0 open, 255 closed).
+      GRASP_WELD: "1"
+      GRASP_WELD_EQ: "grasp_weld"
+      GRASP_CTRL_INDEX: "6"
+      GRASP_CLOSE_CTRL: "255"
+      GRASP_OPEN_CTRL: "0"
+      GRASP_PROXIMITY: "0.20"
     inputs:
       tick: dora/timer/millis/10
       control_input: gripper_merge/control_input
