@@ -35,7 +35,7 @@ nodes:
 
   - id: planning_scene
     path: ./venv-python
-    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/planning_scene.py
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/move_group_demo/nodes/planning_scene.py
     env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.so101" }
     inputs:
       robot_state: mujoco_sim/joint_positions
@@ -45,8 +45,8 @@ nodes:
 
   - id: planner
     path: ./venv-python
-    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/planner.py
-    env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.so101" }
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/move_group_demo/nodes/planner.py
+    env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.so101", PLANNER_TYPE: "simple" }
     inputs:
       plan_request: moveit_arm/plan_request
       scene_update: planning_scene/scene_update
@@ -54,7 +54,7 @@ nodes:
 
   - id: ik_solver
     path: ./venv-python
-    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/ik_solver.py
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/move_group_demo/nodes/ik_solver.py
     env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.so101", IK_SOLVER_TYPE: "de" }
     inputs:
       ik_request: moveit_arm/ik_request
@@ -62,7 +62,7 @@ nodes:
 
   - id: trajectory_executor
     path: ./venv-python
-    args: ${DORA_MOVEIT2}/examples/move_group_demo/nodes/trajectory_executor.py
+    args: ${DORA_MOVEIT2}/examples/move_group_demo/move_group_demo/nodes/trajectory_executor.py
     env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.so101" }
     inputs:
       trajectory: planner/trajectory
@@ -78,7 +78,7 @@ nodes:
       GRIPPER_CTRL_INDEX: "5"      # 5 arm actuators (0..4), gripper jaw is actuator #5
       GRIPPER_OPEN_WIDTH: "0.06"   # skill open width -> frac=1 -> open jaw
       GRIPPER_CTRL_MIN: "1.5"      # jaw angle when OPEN  (TUNE: which extreme opens)
-      GRIPPER_CTRL_MAX: "0.1"      # jaw angle when CLOSED
+      GRIPPER_CTRL_MAX: "-0.12"    # jaw angle when CLOSED (firm close; matches GRASP_CLOSE_CTRL)
     inputs:
       joint_commands: trajectory_executor/joint_commands
       gripper_command: moveit_arm/gripper_command
