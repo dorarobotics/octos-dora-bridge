@@ -16,6 +16,15 @@ nodes:
     env:
       MUJOCO_HEADLESS: "1"
       MODEL_NAME: ${DORA_MOVEIT2}/examples/move_group_demo/models/so101_pickplace.xml
+      # Sim grasp: SO-101's small rotating jaw can't form a stable rigid top-down
+      # grasp, so the sim welds the cube to the gripper on close (released on open).
+      # close/open ctrl mirror gripper_merge (CTRL_MAX=-0.12 closed, CTRL_MIN=1.5 open).
+      GRASP_WELD: "1"
+      GRASP_WELD_EQ: "grasp_weld"
+      GRASP_CTRL_INDEX: "5"
+      GRASP_CLOSE_CTRL: "-0.12"
+      GRASP_OPEN_CTRL: "1.5"
+      GRASP_PROXIMITY: "0.12"
     inputs:
       tick: dora/timer/millis/10
       control_input: gripper_merge/control_input
