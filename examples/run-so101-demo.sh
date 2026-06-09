@@ -19,7 +19,7 @@
 #      PYTHON              python interpreter with deps (default: python3)
 #      DORA_MOVEIT2        path to dora-moveit2 checkout (default: ../dora-moveit2)
 #      MOVEIT_ARM          path to moveit-arm-dora-node checkout (default: ../moveit-arm-dora-node)
-#      EXEC_INTERP_SPEED   motion speed, higher=faster (default 0.45; 1.0 ~= 4x)
+#      EXEC_INTERP_SPEED   motion speed, higher=faster (default 0.5; 1.0 ~= 4x)
 #      GRIP_DWELL          pause (s) at the grasp so the close is visible (default 3.0)
 #      HEADLESS=1          no viewer (CI/tuning)
 #      AUTO=1              skip the ENTER prompt; pick immediately
@@ -44,7 +44,7 @@ URL=http://127.0.0.1:8768
 BALL=http://127.0.0.1:8779/ball
 LOG="$WORK/dataflow.log"
 HEADLESS="${HEADLESS:-0}"
-export EXEC_INTERP_SPEED="${EXEC_INTERP_SPEED:-0.45}"
+export EXEC_INTERP_SPEED="${EXEC_INTERP_SPEED:-0.5}"
 export GRIP_DWELL="${GRIP_DWELL:-3.0}"
 AUTO="${AUTO:-0}"
 
@@ -118,7 +118,9 @@ YAML
 
 echo "[so101-demo] starting dora daemon…"
 dora up >/dev/null 2>&1 || true
-for _ in $(seq 1 15); do dora list >/dev/null 2>&1 && break; dora up >/dev/null 2>&1; sleep 1; done
+# POLL only — re-running `dora up` here spawns a second daemon, and two daemons
+# co-spawn the dataflow (two windows). One up, then just wait for the coordinator.
+for _ in $(seq 1 20); do dora list >/dev/null 2>&1 && break; sleep 1; done
 dora list >/dev/null 2>&1 || die "dora coordinator never came up (try: dora destroy && dora up)"
 
 echo "[so101-demo] launching viewer + dataflow (log: $LOG)…"
