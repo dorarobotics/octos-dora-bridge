@@ -53,15 +53,37 @@ def main() -> None:  # pragma: no cover — needs a running dora daemon + mujoco
         for j in WHEEL_JOINTS
     ]
 
-    viewer = None
-    try:
-        import mujoco.viewer
-        viewer = mujoco.viewer.launch_passive(model, data)
-    except Exception as exc:  # headless or no display — run without a window
-        print(f"[lekiwi_sim] viewer unavailable ({exc}); running headless", flush=True)
+    # Live view: render the scene OFFSCREEN (EGL) and stream frames to a rerun
+    # window. The MuJoCo GLFW passive viewer stalls the dora event loop (it starves
+    # the GUI thread of the GIL while `for event in node` blocks), so we avoid it.
+    # rerun runs in its own process, so there is no GL/GIL contention here.
+    # Disable with LEKIWI_RERUN=0 (headless / CI). Render cadence: LEKIWI_RENDER_EVERY.
+    renderer = None
+    rr = None
+    cam = None
+    render_every = max(1, int(os.environ.get("LEKIWI_RENDER_EVERY", "3")))
+    if os.environ.get("LEKIWI_RERUN", "1") == "1":
+        try:
+            import rerun as rr_mod
+            # dora launches this via the conda python's absolute path, so the env's
+            # bin/ (with the bundled `rerun` viewer) isn't on PATH; add rerun_cli.
+            cli = os.path.join(os.path.dirname(os.path.dirname(rr_mod.__file__)), "rerun_cli")
+            if os.path.isdir(cli):
+                os.environ["PATH"] = cli + os.pathsep + os.environ.get("PATH", "")
+            rr_mod.init("lekiwi_mujoco_sim", spawn=True)
+            renderer = mujoco.Renderer(model, 480, 640)
+            cam = mujoco.MjvCamera()
+            mujoco.mjv_defaultFreeCamera(model, cam)
+            cam.distance, cam.elevation, cam.azimuth = 2.2, -25.0, 120.0
+            rr = rr_mod
+            print("[lekiwi_sim] rerun viewer up; offscreen rendering enabled", flush=True)
+        except Exception as exc:  # rerun missing / no GL — fall back to headless
+            print(f"[lekiwi_sim] rerun/offscreen render unavailable ({exc}); headless", flush=True)
+            renderer = rr = cam = None
 
     base = LeKiwiBase()
     node = Node()
+    frame_i = 0
 
     def emit(out_id: str, payload: Any) -> None:
         node.send_output(out_id, pa.array([json.dumps(payload)]))
@@ -78,8 +100,12 @@ def main() -> None:  # pragma: no cover — needs a running dora daemon + mujoco
         for adr, ang in zip(wheel_qadr, base.wheel_angle):
             data.qpos[adr] = ang
         mujoco.mj_forward(model, data)
-        if viewer is not None:
-            viewer.sync()
+
+    def publish_frame() -> None:
+        # camera follows the base; offscreen render -> rerun image stream
+        cam.lookat[0], cam.lookat[1], cam.lookat[2] = base.x, base.y, 0.1
+        renderer.update_scene(data, cam)
+        rr.log("lekiwi/view", rr.Image(renderer.render()))
 
     try:
         for event in node:
@@ -89,8 +115,11 @@ def main() -> None:  # pragma: no cover — needs a running dora daemon + mujoco
                 continue
             eid = event["id"]
             if eid == "tick":
+                frame_i += 1
                 base.step(dt)
                 render()
+                if renderer is not None and frame_i % render_every == 0:
+                    publish_frame()
                 emit("pose", base.pose)
                 emit("status", base.status)
                 emit("obstacles", OBSTACLES)
@@ -103,8 +132,8 @@ def main() -> None:  # pragma: no cover — needs a running dora daemon + mujoco
                 # milestone 1 is teleop-only; a goal just stops (no planner).
                 base.cancel()
     finally:
-        if viewer is not None:
-            viewer.close()
+        if renderer is not None:
+            renderer.close()
 
 
 if __name__ == "__main__":
