@@ -17,7 +17,15 @@ _FLOOR = (
     '\n        <geom name="floor" type="plane" size="5 5 0.1" '
     'rgba="0.82 0.85 0.90 1" pos="0 0 0"/>'
 )
-_OPTION = '\n    <option timestep="0.002" gravity="0 0 -9.81"/>'
+# Virtual omni-drive: gravity off + contacts disabled. The base is placed by
+# forward-kinematics and the wheels are spun by velocity actuators under mj_step;
+# no contact is needed (and the single-body omniwheels can't roll correctly), so
+# disabling contact also avoids costly collision on the 78k-triangle wheel meshes.
+_OPTION = (
+    '\n    <option timestep="0.002" gravity="0 0 0">'
+    '\n      <flag contact="disable"/>'
+    '\n    </option>'
+)
 
 
 def build_scene(src_mjcf: str, meshdir: str) -> str:
@@ -30,6 +38,10 @@ def build_scene(src_mjcf: str, meshdir: str) -> str:
         f'<compiler angle="radian" meshdir="{meshdir}" />{_OPTION}',
         1,
     )
+    # 1b) make the 3 wheel drives VELOCITY actuators so octos can command wheel
+    # speeds (motors 7/8/9). The shipped model uses <motor> (torque); velocity
+    # control lets ctrl = target wheel angular speed (rad/s).
+    xml = xml.replace('<motor name="drive_motor_', '<velocity kv="8" name="drive_motor_')
     # 2) free joint on the base root (raised so wheels sit on the floor)
     xml = xml.replace(
         ROOT_BODY_TAG,

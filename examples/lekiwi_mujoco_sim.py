@@ -1,12 +1,20 @@
 """MuJoCo sim backend for the LeKiwi base — drop-in for nav_toy_sim.
 
-Mirrors nav_toy_sim's I/O contract exactly so nav_base needs no change:
-  inputs : tick, goal, cancel, cmd_vel
-  outputs: pose {x,y,theta}, status (str), obstacles (list)
+Mirrors nav_toy_sim's I/O contract (inputs tick/goal/cancel/cmd_vel; outputs
+pose/status/obstacles) so nav_base needs no change.
 
-The base is KINEMATIC: each tick we integrate LeKiwiBase, write the base free
-joint qpos (x, y, z, yaw-quat) and the 3 wheel-joint qpos, then mj_forward (no
-dynamics). A passive viewer renders it when a display is available.
+Virtual omni-drive: octos commands a (linear, angular) twist; we derive the 3
+omniwheel speeds (LeKiwi kinematics) and command the wheel VELOCITY actuators
+(drive_motor_1/2/3 == lerobot motors 7/8/9), stepping real physics (mj_step) so
+the wheels physically spin. The base body is placed by the holonomic
+forward-kinematics each tick. Gravity and contacts are disabled (the shipped
+omniwheels are single rigid bodies without rollers, so wheel-ground contact can't
+produce correct holonomic motion) — the wheels are genuinely actuated, the base
+pose comes from the kinematic integrator.
+
+Headless by design (no live viewer — it stalls the dora loop). For a watchable
+result set LEKIWI_TRAJ=<path>: the qpos trajectory is recorded and lekiwi_render_video.py
+renders it to an MP4 offline.
 """
 from __future__ import annotations
 
@@ -18,11 +26,7 @@ from typing import Any
 from lekiwi_kinematics import LeKiwiBase
 from lekiwi_scene import BASE_Z, build_scene
 
-WHEEL_JOINTS = (
-    "ST3215_Servo_Motor-v1-2_Hub---Servo",
-    "ST3215_Servo_Motor-v1-1_Hub-2---Servo",
-    "ST3215_Servo_Motor-v1_Revolute-40",
-)
+DRIVE_ACTUATORS = ("drive_motor_1", "drive_motor_2", "drive_motor_3")
 OBSTACLES: list = []   # empty map for milestone 1 (nav_base runs with NAV_FAKE_MAP=1)
 
 
@@ -32,12 +36,15 @@ def _yaw_quat(theta: float) -> tuple[float, float, float, float]:
 
 def main() -> None:  # pragma: no cover — needs a running dora daemon + mujoco
     import mujoco
+    import numpy as np
     import pyarrow as pa
     from dora import Node
 
     sim_dir = os.environ["LEKIWI_SIM_DIR"]
-    # SIM_DT: this node's tick integration step (seconds); set per-node in the dataflow env
+    # SIM_DT: control-tick integration step (seconds); set per-node in the dataflow env
     dt = float(os.environ.get("SIM_DT", "0.05"))
+    traj_path = os.environ.get("LEKIWI_TRAJ", "")
+
     scene_xml = build_scene(
         os.path.join(sim_dir, "mjcf_lcmm_robot.xml"),
         # meshdir is the model's own dir: the MJCF mesh file= paths already
@@ -46,44 +53,19 @@ def main() -> None:  # pragma: no cover — needs a running dora daemon + mujoco
     )
     model = mujoco.MjModel.from_xml_string(scene_xml)
     data = mujoco.MjData(model)
+    n_sub = max(1, int(round(dt / model.opt.timestep)))   # physics substeps per tick
 
-    base_qadr = model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "base_free")]
-    wheel_qadr = [
-        model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, j)]
-        for j in WHEEL_JOINTS
+    jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "base_free")
+    base_qadr = model.jnt_qposadr[jid]
+    base_vadr = model.jnt_dofadr[jid]
+    drive_adr = [
+        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, a) for a in DRIVE_ACTUATORS
     ]
-
-    # Live view: render the scene OFFSCREEN (EGL) and stream frames to a rerun
-    # window. The MuJoCo GLFW passive viewer stalls the dora event loop (it starves
-    # the GUI thread of the GIL while `for event in node` blocks), so we avoid it.
-    # rerun runs in its own process, so there is no GL/GIL contention here.
-    # Disable with LEKIWI_RERUN=0 (headless / CI). Render cadence: LEKIWI_RENDER_EVERY.
-    renderer = None
-    rr = None
-    cam = None
-    render_every = max(1, int(os.environ.get("LEKIWI_RENDER_EVERY", "3")))
-    if os.environ.get("LEKIWI_RERUN", "1") == "1":
-        try:
-            import rerun as rr_mod
-            # dora launches this via the conda python's absolute path, so the env's
-            # bin/ (with the bundled `rerun` viewer) isn't on PATH; add rerun_cli.
-            cli = os.path.join(os.path.dirname(os.path.dirname(rr_mod.__file__)), "rerun_cli")
-            if os.path.isdir(cli):
-                os.environ["PATH"] = cli + os.pathsep + os.environ.get("PATH", "")
-            rr_mod.init("lekiwi_mujoco_sim", spawn=True)
-            renderer = mujoco.Renderer(model, 480, 640)
-            cam = mujoco.MjvCamera()
-            mujoco.mjv_defaultFreeCamera(model, cam)
-            cam.distance, cam.elevation, cam.azimuth = 2.2, -25.0, 120.0
-            rr = rr_mod
-            print("[lekiwi_sim] rerun viewer up; offscreen rendering enabled", flush=True)
-        except Exception as exc:  # rerun missing / no GL — fall back to headless
-            print(f"[lekiwi_sim] rerun/offscreen render unavailable ({exc}); headless", flush=True)
-            renderer = rr = cam = None
 
     base = LeKiwiBase()
     node = Node()
-    frame_i = 0
+    traj = [] if traj_path else None
+    print(f"[lekiwi_sim] virtual omni-drive up (n_sub={n_sub}, traj={'on' if traj else 'off'})", flush=True)
 
     def emit(out_id: str, payload: Any) -> None:
         node.send_output(out_id, pa.array([json.dumps(payload)]))
@@ -94,18 +76,21 @@ def main() -> None:  # pragma: no cover — needs a running dora daemon + mujoco
             return None
         return json.loads(items[0]) if isinstance(items[0], str) else items[0]
 
-    def render() -> None:
+    def control_step() -> None:
+        # command the 3 wheel velocity actuators with the IK wheel speeds (motors 7/8/9)
+        w1, w2, w3 = base.wheel_velocities(base._v, 0.0, base._w)
+        data.ctrl[drive_adr[0]] = w1
+        data.ctrl[drive_adr[1]] = w2
+        data.ctrl[drive_adr[2]] = w3
+        for _ in range(n_sub):
+            mujoco.mj_step(model, data)   # wheels physically spin (contacts/gravity off)
+        # virtual base drive: place the base by forward-kinematics, freeze its vel
         qw, qx, qy, qz = _yaw_quat(base.theta)
         data.qpos[base_qadr : base_qadr + 7] = [base.x, base.y, BASE_Z, qw, qx, qy, qz]
-        for adr, ang in zip(wheel_qadr, base.wheel_angle):
-            data.qpos[adr] = ang
+        data.qvel[base_vadr : base_vadr + 6] = 0.0
         mujoco.mj_forward(model, data)
-
-    def publish_frame() -> None:
-        # camera follows the base; offscreen render -> rerun image stream
-        cam.lookat[0], cam.lookat[1], cam.lookat[2] = base.x, base.y, 0.1
-        renderer.update_scene(data, cam)
-        rr.log("lekiwi/view", rr.Image(renderer.render()))
+        if traj is not None:
+            traj.append(data.qpos.copy())
 
     try:
         for event in node:
@@ -115,11 +100,8 @@ def main() -> None:  # pragma: no cover — needs a running dora daemon + mujoco
                 continue
             eid = event["id"]
             if eid == "tick":
-                frame_i += 1
                 base.step(dt)
-                render()
-                if renderer is not None and frame_i % render_every == 0:
-                    publish_frame()
+                control_step()
                 emit("pose", base.pose)
                 emit("status", base.status)
                 emit("obstacles", OBSTACLES)
@@ -132,8 +114,9 @@ def main() -> None:  # pragma: no cover — needs a running dora daemon + mujoco
                 # milestone 1 is teleop-only; a goal just stops (no planner).
                 base.cancel()
     finally:
-        if renderer is not None:
-            renderer.close()
+        if traj:
+            np.save(traj_path, np.asarray(traj))
+            print(f"[lekiwi_sim] wrote {len(traj)} frames -> {traj_path}.npy", flush=True)
 
 
 if __name__ == "__main__":
