@@ -1,0 +1,68 @@
+# octos -> LeKiwi base in MuJoCo. Same shape as nav-base-bridge.yaml, with the
+# two fake nodes replaced by a single MuJoCo sim node. HTTP_PORT=8770 so it
+# coexists with A2(8765)/G1(8766)/Navi(8767)/arm(8768)/nav-base(8769).
+#
+# Usage (epyc):
+#   export LEKIWI_SIM_DIR=/abs/path/to/LeKiwi-sim
+#   dora up && dora start dataflows/lekiwi-mujoco-bridge.yaml --attach
+#
+# Paths are relative to THIS file's directory (dataflows/), which dora uses as
+# each node's working directory; the sim script lives in ../examples/.
+
+nodes:
+  - id: lekiwi_sim
+    path: ./venv-python
+    args: ../examples/lekiwi_mujoco_sim.py
+    env:
+      LEKIWI_SIM_DIR: "/home/demo/dorarobotics-test/LeKiwi-sim"
+      SIM_DT: "0.05"
+      DISPLAY: ":0"
+    inputs:
+      tick: dora/timer/millis/50
+      goal: nav_base/dora_nav_goal
+      cancel: nav_base/dora_nav_cancel
+      cmd_vel: nav_base/dora_nav_cmd_vel
+    outputs:
+      - pose
+      - status
+      - obstacles
+
+  - id: nav_base
+    path: ./venv-python
+    args: -m nav_base_node
+    env:
+      ROBOT_ID: lekiwi-001
+      WAYPOINTS_PATH: "load_path.yml"
+      HEARTBEAT_TIMEOUT_MS: "0"
+      NAV_FAKE_MAP: "1"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_request: bridge/cmd_request
+      dora_nav_pose: lekiwi_sim/pose
+      dora_nav_status: lekiwi_sim/status
+      dora_nav_obstacles: lekiwi_sim/obstacles
+    outputs:
+      - cmd_response
+      - capabilities
+      - state
+      - safety_event
+      - dora_nav_goal
+      - dora_nav_cancel
+      - dora_nav_cmd_vel
+
+  - id: bridge
+    path: ./venv-python
+    args: -m octos_spec_bridge
+    env:
+      ROBOT_ID: lekiwi-001
+      HTTP_HOST: "127.0.0.1"
+      HTTP_PORT: "8770"
+      CMD_TIMEOUT_S: "30"
+      LOG_LEVEL: INFO
+    inputs:
+      cmd_response: nav_base/cmd_response
+      capabilities: nav_base/capabilities
+      state: nav_base/state
+      safety_event: nav_base/safety_event
+    outputs:
+      - cmd_request
