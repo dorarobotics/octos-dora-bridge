@@ -83,6 +83,10 @@ cleanup() {
   echo "[nav-viz] tearing down…"
   dora stop --grace 3 >/dev/null 2>&1 || true
   dora destroy >/dev/null 2>&1 || true
+  # Kill the real daemon/coordinator process names (a SPACE, not a hyphen) — dora
+  # destroy alone leaks them; leftover daemons accumulate and co-spawn the dataflow.
+  pkill -9 -f "dora daemon" 2>/dev/null || true
+  pkill -9 -f "dora coordinator" 2>/dev/null || true
   pkill -f "octos_spec_bridge" 2>/dev/null || true
   pkill -f "nav_rerun_viz.py" 2>/dev/null || true
   pkill -f "nav_toy_sim.py" 2>/dev/null || true
@@ -92,6 +96,8 @@ trap cleanup EXIT
 echo "[nav-viz] clearing stale processes/daemon…"
 pkill -f "octos_spec_bridge" 2>/dev/null || true
 dora destroy >/dev/null 2>&1 || true
+pkill -9 -f "dora daemon" 2>/dev/null || true
+pkill -9 -f "dora coordinator" 2>/dev/null || true
 sleep 1
 
 echo "[nav-viz] dora up…"
