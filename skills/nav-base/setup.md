@@ -187,6 +187,22 @@ DISPLAY=:0 dora start dataflows/nav-base-viz.yml --attach
 NAV_BRIDGE_URL=http://127.0.0.1:8769 python examples/nav_demo_driver.py
 ```
 
+### No display? Render an MP4 (headless)
+
+When there's no X display (CI, plain SSH, a Mac), render the same scene to a video with
+`examples/nav_render_mp4.py`. It drives the pure `ToySim` kinematics through the identical
+scripted sequence (A→B→C, spin, stop, origin, ESTOP) and pipes frames to ffmpeg — **no
+dora, no rerun, no display**. This is the same offline fallback used for the LeKiwi sim.
+
+```bash
+pip install pillow            # ffmpeg must be on PATH
+python3 examples/nav_render_mp4.py skills/nav-base/nav_base_demo.mp4
+# -> 720x720 h264, ~33s @ 20fps; blue robot + heading, orange trail, green goal,
+#    grey obstacles, status banner (red on ESTOP)
+```
+
+A pre-rendered copy lives at `skills/nav-base/nav_base_demo.mp4`.
+
 ### Caveats
 - The plain `nav-base-bridge.yaml` (§5, what octos normally uses) is **headless — no viz**;
   `nav-base-viz.yml` / `run-nav-viz.sh` add the toy sim + viewer purely for inspection.
