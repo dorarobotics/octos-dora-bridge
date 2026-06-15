@@ -60,7 +60,7 @@ the bridge speaks SPEC-VENDOR-NODE-V1.
 
 ## Quirks
 
-- **Map required for real hardware.** Set `MAP_PATH` env var. For sim / unit tests set `NAV_FAKE_MAP=1` and the node emits a synthetic empty map.
+- **Maps live in dora-nav, not this node.** On real hardware the map is owned by the dora-nav stack; `nav-base-dora-node` only relays goals/velocity and reads back the pose/status/obstacle streams. In sim, pose and obstacles come from the fake (or toy-sim) nodes' streams — no map file is needed. The node reads `WAYPOINTS_PATH` (default `load_path.yml`) and only for `go_to_named`. `NAV_FAKE_MAP=1` is a preflight bypass (lets `init` start without a `load_path.yml` present) — the node does not consume it.
 - **Status updates are asynchronous.** A `go_to_pose` returns OK once the goal is queued, not once the base has arrived. Watch the `state` stream for `nav_status` transitions.
 
 ## Error codes
