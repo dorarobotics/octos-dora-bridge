@@ -31,6 +31,24 @@ DORA_INPUT_IDS = ("capabilities", "cmd_response", "state", "safety_event")
 DORA_OUTPUT_ID = "cmd_request"
 
 
+def _as_event_dict(event: Any) -> dict[str, Any]:
+    """Normalize a dora event to a dict.
+
+    The custom dora fork yields dict events; stock ``dora-rs`` yields a
+    subscript-only ``PyEvent`` (no ``.get``). Coerce the latter so the loop
+    works on both. Dicts pass through unchanged.
+    """
+    if isinstance(event, dict):
+        return event
+    out: dict[str, Any] = {}
+    for key in ("type", "id", "value", "metadata", "error"):
+        try:
+            out[key] = event[key]
+        except Exception:  # noqa: BLE001
+            out[key] = None
+    return out
+
+
 class DoraLoop:
     def __init__(self, *, node: Any, state_cache: StateCache) -> None:
         self._node = node
@@ -112,8 +130,10 @@ class DoraLoop:
             for event in self._node:
                 if self._stop.is_set():
                     return
-                if event.get("type") != "INPUT":
-                    if event.get("type") == "STOP":
+                event = _as_event_dict(event)
+                etype = event.get("type")
+                if etype != "INPUT":
+                    if etype == "STOP":
                         return
                     continue
                 self._dispatch(event)
