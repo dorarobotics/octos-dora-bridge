@@ -66,7 +66,7 @@ Use `--robot` to switch between supported arms:
 | `pick_cube_at` | `{"x": 0.15, "y": 0.05, "z": 0.02}` | picks cube at given base-frame coordinates |
 | `place_cube_at` | `{"x": 0.25, "y": 0.0}` | places held cube at target |
 | `move_to` | `{"x": 0.20, "y": 0.10, "z": 0.05}` | pure Cartesian movement (no gripper) |
-| `set_gripper` | `{"action": "open"\|"close"}` | open or close gripper independently |
+| `set_gripper` | `{"action": "open"\|"close"}` or `{"width": 0.03}` | open or close gripper independently; optional `width` (meters) overrides default |
 | `detect_blocks` | `{"colors": ["yellow"]}` (optional) | detect colored blocks via camera |
 | `capture_chessboard` | `{"square_size_mm": 25}` | capture chessboard image for calibration |
 | `calibrate_camera` | `{"square_size_mm": 25}` | run camera intrinsics calibration |
