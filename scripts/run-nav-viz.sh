@@ -7,7 +7,16 @@
 #   bash ~/dorarobotics-test/run-nav-viz.sh
 #
 # Tear down with Ctrl-C.
+#
+# Box autodetect: this is the epyc launcher (rerun viewer, ~/dorarobotics-test).
+# On the asus box (GPU-less, ~/octos-deploy) rerun's GL viewer renders BLACK over
+# RustDesk/NoMachine, so we delegate to the matplotlib variant there instead.
 set -euo pipefail
+
+if [ ! -d "$HOME/dorarobotics-test" ] && [ -d "$HOME/octos-deploy" ]; then
+  echo "[nav-viz] detected ~/octos-deploy (asus layout) — using run-nav-viz-asus.sh (matplotlib viewer)"
+  exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-nav-viz-asus.sh" "$@"
+fi
 
 export DISPLAY="${DISPLAY:-:0}"
 export PATH="$HOME/.cargo/bin:$PATH"
