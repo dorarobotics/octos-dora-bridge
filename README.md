@@ -15,6 +15,9 @@ translates between octos and the vendor wire format.
 - **`skills/<vendor>-<model>/SKILL.md`** — per-robot skills (lifecycle, safety tier,
   workspace, known quirks). Loaded by octos.
 - **`dataflows/<robot>-bridge.yaml`** — wires the bridge to a specific vendor adapter.
+- **`manual_nav_viz.md`** — step-by-step manual commands for the nav-base visual
+  patrol demo on the asus / GPU-less remote-desktop box (the hand-run equivalent
+  of `scripts/run-nav-viz-asus.sh`).
 
 Supported robots (today):
 
