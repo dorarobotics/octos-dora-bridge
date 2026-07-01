@@ -173,6 +173,60 @@ Use these variables only when overriding the defaults:
 Older `SO101_*` startup variables remain accepted as compatibility aliases where
 the script historically used them.
 
+## Reproducible Python environment
+
+Use one robot runtime venv instead of relying on packages from `~/.local`,
+Conda, or a generated `.adora-hw-run` directory:
+
+```bash
+cd /path/to/octos-dora-bridge
+bash scripts/setup_adora_hw.sh
+```
+
+The manual equivalent is:
+
+```bash
+cd /path/to/octos-dora-bridge
+python3 -m venv /path/to/adora-venv
+/path/to/adora-venv/bin/python -m pip install --upgrade pip
+/path/to/adora-venv/bin/python -m pip install -e '.[adora-hw]'
+
+/path/to/adora-venv/bin/python -m pip install --no-deps -e bridge
+/path/to/adora-venv/bin/python -m pip install --no-deps -e /path/to/moveit-arm-dora-node
+/path/to/adora-venv/bin/python -m pip install --no-deps -e /path/to/rebot-hw-dora-node
+/path/to/adora-venv/bin/python -m pip install --no-deps -e /path/to/dora-moveit2/dora_moveit
+/path/to/adora-venv/bin/python -m pip install --no-deps -e /path/to/dora-moveit2/examples/move_group_demo
+```
+
+Then run the bridge with that interpreter:
+
+```bash
+ADORA_VENV_PYTHON=/path/to/adora-venv/bin/python \
+DORA_MOVEIT2=/path/to/dora-moveit2 \
+bash /home/dora/.octos/skills/Adora-RGB-pick/start_bridge.sh
+```
+
+The Feetech/SCS servo Python module is currently not represented by a standard
+PyPI package in this repo. The runtime must be able to `import scservo_sdk`;
+install it from the vendor source used by your hardware stack, or copy the
+known-good `scservo_sdk/` package into the venv's `site-packages`.
+
+The `adora-hw` extra pins the validated PyPI runtime. Keep sibling repository
+installs on `--no-deps` unless their package metadata has been updated to the
+same Dora runtime version; otherwise pip can silently replace the working
+`dora-rs`/`pyarrow` pair.
+
+Check the environment before starting hardware:
+
+```bash
+/path/to/adora-venv/bin/python - <<'PY'
+import dora, draccus, lerobot, torch, uvicorn
+import octos_spec_bridge, moveit_arm_node, rebot_hw_node, dora_moveit
+import scservo_sdk
+print("adora hw venv ok")
+PY
+```
+
 ## Sim vs hardware
 
 - **Sim:** `so101-mujoco-bridge.yaml` dataflow (MuJoCo simulation)

@@ -33,11 +33,20 @@ else
 fi
 CONTROL_PORT="${ADORA_DORA_CONTROL_PORT:-${SO101_DORA_CONTROL_PORT:-6112}}"
 BRIDGE_HTTP_PORT="${ADORA_HTTP_PORT:-8768}"
+NAME="${ADORA_DORA_NAME:-${SO101_DORA_NAME:-Adora-RGB-pick}}"
 
 if [ -f "$RUN_DIR/dataflow.uuid" ]; then
   UUID="$(cat "$RUN_DIR/dataflow.uuid")"
   dora stop "$UUID" --coordinator-port "$CONTROL_PORT" --grace-duration 4s >/dev/null 2>&1 || true
   rm -f "$RUN_DIR/dataflow.uuid"
+fi
+
+# Dora can keep the named dataflow registered even after node processes exit or
+# after the UUID file has already been removed by a previous stop attempt.
+dora stop --name "$NAME" --coordinator-port "$CONTROL_PORT" --force >/dev/null 2>&1 || true
+
+if dora list --coordinator-port "$CONTROL_PORT" --name "$NAME" 2>/dev/null | awk 'NR > 1 {found=1} END {exit found ? 0 : 1}'; then
+  dora destroy --coordinator-port "$CONTROL_PORT" >/dev/null 2>&1 || true
 fi
 
 if [ -f "$RUN_DIR/node.pids" ]; then

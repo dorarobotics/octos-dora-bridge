@@ -96,6 +96,38 @@ variables:
 | `ADORA_EXEC_INTERP_SPEED` | trajectory interpolation speed |
 | `ADORA_HTTP_PORT` | HTTP bridge port |
 
+## Reproducible runtime dependencies
+
+Do not treat a local venv such as `/home/dora/so101-sim/venv` as part of the
+portable hardware definition. A portable robot integration should document:
+
+1. the PyPI runtime packages needed by that hardware path;
+2. the local repositories that must be installed editable or added to
+   `PYTHONPATH`; and
+3. any vendor SDKs that are not available as normal PyPI packages.
+
+For ADORA hardware, the root `pyproject.toml` exposes an `adora-hw` optional
+dependency set. It must be installed into the same Python environment used by
+`skills/Adora-RGB-pick/start_bridge.sh`. The remaining robot stack modules come
+from local checkouts:
+
+```bash
+python -m pip install -e 'octos-dora-bridge[adora-hw]'
+python -m pip install --no-deps -e octos-dora-bridge/bridge
+python -m pip install --no-deps -e moveit-arm-dora-node
+python -m pip install --no-deps -e rebot-hw-dora-node
+python -m pip install --no-deps -e dora-moveit2/dora_moveit
+python -m pip install --no-deps -e dora-moveit2/examples/move_group_demo
+```
+
+Use `--no-deps` for the editable repository installs when the robot runtime
+extra pins the validated Dora/PyArrow/LeRobot/Torch versions. This prevents
+older package metadata in a sibling repository from silently downgrading or
+upgrading the working dora runtime.
+
+If the hardware backend imports a vendor SDK that is not packaged on PyPI, such
+as `scservo_sdk`, document its source and ensure the final venv can import it.
+
 ## Worked example: reBotArm B601-DM
 
 Added with **zero edits** to `bridge/`, `octos_py`, or `dora_moveit/`:
