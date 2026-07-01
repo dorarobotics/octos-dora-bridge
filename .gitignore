@@ -26,6 +26,7 @@ docs/
 out/
 venv-python
 SO101_DEMO_RUNBOOK.md
+.octos/
 
 # Claude Code
 .claude/
