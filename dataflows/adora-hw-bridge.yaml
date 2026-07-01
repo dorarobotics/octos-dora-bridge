@@ -1,0 +1,110 @@
+# octos -> ADORA RGB pick hardware via dora-moveit2 + rebot_hw_node.
+#
+# This file is a template. `skills/Adora-RGB-pick/start_bridge.sh` resolves the
+# placeholders below into `.adora-hw-run/adora-hw-bridge.yml` before calling
+# `dora start`, because dora does not interpolate shell variables in path:/args:.
+#
+# Common knobs, set before running start_bridge.sh only when overriding defaults:
+#   ADORA_ROBOT_ID=adora-hw-001
+#   ADORA_PORT=/dev/ttyACM0
+#   ADORA_EXEC_INTERP_SPEED=0.25
+#   ADORA_HTTP_PORT=8768
+#   ADORA_RUN_DIR=/path/to/.adora-hw-run
+
+nodes:
+  - id: rebot_hw
+    path: __VENV_PY__
+    args: -m rebot_hw_node.node
+    env:
+      ROBOT_BACKEND: lerobot
+      ROBOT_MANIFEST: __ADORA_ROBOT_MANIFEST__
+    inputs:
+      joint_commands: trajectory_executor/joint_commands
+      gripper_command: moveit_arm/gripper_command
+      tick: dora/timer/millis/__ADORA_HW_TICK_MS__
+    outputs:
+      - joint_positions
+      - joint_velocities
+
+  - id: planning_scene
+    path: __VENV_PY__
+    args: __DORA_MOVEIT2__/examples/move_group_demo/move_group_demo/nodes/planning_scene.py
+    env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.adora" }
+    inputs:
+      robot_state: rebot_hw/joint_positions
+      scene_command: moveit_arm/scene_command
+      tick: dora/timer/millis/5000
+    outputs: [scene_update, command_result]
+
+  - id: planner
+    path: __VENV_PY__
+    args: __DORA_MOVEIT2__/examples/move_group_demo/move_group_demo/nodes/planner.py
+    env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.adora", PLANNER_TYPE: "__ADORA_PLANNER_TYPE__" }
+    inputs:
+      plan_request: moveit_arm/plan_request
+      scene_update: planning_scene/scene_update
+    outputs: [trajectory, plan_status]
+
+  - id: ik_solver
+    path: __VENV_PY__
+    args: __DORA_MOVEIT2__/examples/move_group_demo/move_group_demo/nodes/ik_solver.py
+    env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.adora", IK_SOLVER_TYPE: "__ADORA_IK_SOLVER_TYPE__" }
+    inputs:
+      ik_request: moveit_arm/ik_request
+    outputs: [ik_solution, ik_status]
+
+  - id: trajectory_executor
+    path: __VENV_PY__
+    args: __DORA_MOVEIT2__/examples/move_group_demo/move_group_demo/nodes/trajectory_executor.py
+    env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.adora", EXEC_INTERP_SPEED: "__ADORA_EXEC_INTERP_SPEED__" }
+    inputs:
+      trajectory: planner/trajectory
+      cartesian_trajectory: moveit_arm/cartesian_trajectory
+      joint_positions: rebot_hw/joint_positions
+      tick: dora/timer/millis/__ADORA_EXEC_TICK_MS__
+    outputs: [joint_commands, execution_status]
+
+  - id: moveit_arm
+    path: __VENV_PY__
+    args: -m moveit_arm_node
+    env:
+      ROBOT_ID: __ADORA_ROBOT_ID__
+      ROBOT_CONFIG_MODULE: "move_group_demo.config.adora"
+      GRIPPER_DRIVER: mujoco
+      HEARTBEAT_TIMEOUT_MS: "__ADORA_HEARTBEAT_TIMEOUT_MS__"
+    inputs:
+      cmd_request: bridge/cmd_request
+      joint_positions: rebot_hw/joint_positions
+      plan_status: planner/plan_status
+      trajectory: planner/trajectory
+      execution_status: trajectory_executor/execution_status
+      ik_solution: ik_solver/ik_solution
+      ik_status: ik_solver/ik_status
+      command_result: planning_scene/command_result
+    outputs:
+      - cmd_response
+      - capabilities
+      - state
+      - safety_event
+      - plan_request
+      - ik_request
+      - scene_command
+      - cartesian_trajectory
+      - gripper_command
+
+  - id: bridge
+    path: __VENV_PY__
+    args: -m octos_spec_bridge
+    env:
+      ROBOT_ID: __ADORA_ROBOT_ID__
+      HTTP_HOST: "__ADORA_HTTP_HOST__"
+      HTTP_PORT: "__ADORA_HTTP_PORT__"
+      CMD_TIMEOUT_S: "__ADORA_CMD_TIMEOUT_S__"
+      NO_PROXY: "127.0.0.1,localhost"
+      no_proxy: "127.0.0.1,localhost"
+    inputs:
+      cmd_response: moveit_arm/cmd_response
+      capabilities: moveit_arm/capabilities
+      state: moveit_arm/state
+      safety_event: moveit_arm/safety_event
+    outputs: [cmd_request]

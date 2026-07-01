@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""octos app-skill `main` — robot pick-and-place tools over the SPEC bridge.
+
+octos spawns this per tool call as `main <tool_name>` with the tool args as JSON on
+stdin, and expects a single JSON object on stdout: {"output": <str>, "success": <bool>}.
+
+It dispatches the four high-level tools to the imperative arm skill pack
+(`moveit-arm-dora-node/skill_pack/arm_skills.py`), which does the on-demand MuJoCo IK
++ settle/staged-lift/grip-dwell and drives the SPEC verbs over the bridge HTTP. So one
+tool call = a full, reliable sub-action — the LLM never touches raw joint math.
+
+This `main` is robot-agnostic; which robot it drives is selected purely by env (set by
+the deploy / the SKILL.md environment), so the same file is used for so101 and rebot:
+
+  SKILL_PACK      path to moveit-arm-dora-node/skill_pack (default: /opt/moveit-arm-dora-node/skill_pack)
+  MODEL_NAME      MuJoCo model used for IK (robot-specific .xml)
+  ROBOT_MANIFEST  skill_pack manifest for this robot (e.g. manifests/so101.json)
+  ARM_BRIDGE_URL  bridge base URL (default http://127.0.0.1:8768)
+  BALL_URL        object-state URL (default http://127.0.0.1:8779/ball)
+"""
+import json
+import os
+import sys
+
+
+def _emit(output, success):
+    print(json.dumps({"output": str(output), "success": bool(success)}))
+    sys.exit(0)
+
+
+def main():
+    tool = sys.argv[1] if len(sys.argv) > 1 else ""
+    raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+    try:
+        args = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError:
+        _emit(f"invalid JSON args on stdin for '{tool}'", False)
+
+    os.environ.setdefault("ARM_BRIDGE_URL", "http://127.0.0.1:8768")
+    os.environ.setdefault("BALL_URL", "http://127.0.0.1:8779/ball")
+    os.environ.setdefault("SKILL_PACK", "/home/dora/so101-sim/moveit-arm-dora-node/skill_pack")
+    os.environ.setdefault("MODEL_NAME", "/home/dora/so101-sim/dora-moveit2/examples/move_group_demo/models/so101_pickplace.xml")
+    os.environ.setdefault("ROBOT_MANIFEST", "/home/dora/so101-sim/moveit-arm-dora-node/skill_pack/manifests/so101.json")
+    skill_pack = os.environ["SKILL_PACK"]
+    sys.path.insert(0, skill_pack)
+    try:
+        import numpy as np
+        import arm_skills  # needs MODEL_NAME + ROBOT_MANIFEST in env (loads the IK model at import)
+    except Exception as exc:  # noqa: BLE001
+        _emit(f"skill pack not importable from SKILL_PACK={skill_pack} ({exc}); "
+              f"set SKILL_PACK, MODEL_NAME, ROBOT_MANIFEST", False)
+
+    # octos spawns a FRESH process per tool call, so arm_skills' in-memory grasp state
+    # (_pick_xy/_grasp_R set by pick_at, needed by place_at) is lost between calls. The
+    # robot physically keeps holding the object (gripper stays closed / weld latched),
+    # so we just persist that small state to disk and restore it for place_at.
+    skill_name = os.path.basename(os.path.dirname(os.path.abspath(__file__))) or "arm"
+    state_file = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"octos_grasp_{skill_name}.json")
+
+    def _save_grasp_state():
+        st = {
+            "pick_xy": list(arm_skills._pick_xy) if arm_skills._pick_xy is not None else None,
+            "grasp_R": arm_skills._grasp_R.tolist() if arm_skills._grasp_R is not None else None,
+        }
+        try:
+            with open(state_file, "w") as fh:
+                json.dump(st, fh)
+        except OSError:
+            pass
+
+    def _restore_grasp_state():
+        if arm_skills._pick_xy is not None or not os.path.exists(state_file):
+            return
+        try:
+            with open(state_file) as fh:
+                st = json.load(fh)
+            if st.get("pick_xy") is not None:
+                arm_skills._pick_xy = tuple(st["pick_xy"])
+            if st.get("grasp_R") is not None:
+                arm_skills._grasp_R = np.array(st["grasp_R"])
+        except (OSError, ValueError):
+            pass
+
+    try:
+        if tool == "get_object_position":
+            _emit(arm_skills.get_ball_position(), True)
+        elif tool == "get_plate_position":
+            _emit(arm_skills.get_plate_position(), True)
+        elif tool == "pick_at":
+            if "x" not in args or "y" not in args:
+                _emit("pick_at needs numeric 'x' and 'y' (meters)", False)
+            out = arm_skills.pick_at(float(args["x"]), float(args["y"]))
+            _save_grasp_state()  # carry the held-object state to the next process
+            _emit(out, not str(out).startswith(("ERROR", "WARNING")))
+        elif tool == "place_at":
+            if "x" not in args or "y" not in args:
+                _emit("place_at needs numeric 'x' and 'y' (meters)", False)
+            _restore_grasp_state()  # recover the grasp state pick_at left behind
+            out = arm_skills.place_at(float(args["x"]), float(args["y"]))
+            ok = not str(out).startswith(("ERROR", "WARNING"))
+            if ok:
+                try:
+                    os.remove(state_file)
+                except OSError:
+                    pass
+            _emit(out, ok)
+        else:
+            _emit(f"unknown tool '{tool}'", False)
+    except Exception as exc:  # noqa: BLE001
+        _emit(f"{tool} failed: {exc}", False)
+
+
+if __name__ == "__main__":
+    main()

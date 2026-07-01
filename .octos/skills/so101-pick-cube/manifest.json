@@ -1,0 +1,133 @@
+{
+  "name": "so101-pick-cube",
+  "version": "0.5.0",
+  "author": "dorarobotics",
+  "description": "Hardware pick-and-place for SO-101 and Adora (1.15× scaled) arms. Supports RGB camera block detection and hand-eye calibration. Use --robot so101|adora to switch. Reuses the SPEC bridge and on-demand MuJoCo IK from arm_skills.py.",
+  "timeout_secs": 120,
+  "requires_network": true,
+  "tools": [
+    {
+      "name": "get_dropoff_position",
+      "description": "Return the (x, y) of the target plate (drop-off zone) in meters, in the robot base frame. Read from the active robot manifest.",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "pick_cube_at",
+      "description": "Pick up the cube at (x, y, z) meters in the robot base frame: approach from above, grasp, and lift. Caller must provide all three coordinates.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "x": { "type": "number", "description": "cube x in meters (SO-101 base frame)" },
+          "y": { "type": "number", "description": "cube y in meters" },
+          "z": { "type": "number", "description": "cube z (height) in meters — typically table surface height" }
+        },
+        "required": ["x", "y", "z"]
+      }
+    },
+    {
+      "name": "set_gripper",
+      "description": "Open or close the gripper independently. Use before move_to to approach with open gripper, or after picking to hold an object.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["open", "close"], "description": "open = jaws apart, close = jaws shut" },
+          "width": { "type": "number", "description": "Optional gripper opening width in meters. 0.0 = fully closed, 0.06 = fully open. If omitted, open→0.06, close→0.0." }
+        },
+        "required": ["action"]
+      }
+    },
+    {
+      "name": "move_to",
+      "description": "Move the arm end-effector (pinch site) to (x, y, z) meters in the robot base frame via on-demand IK. No gripper action — pure Cartesian movement. Use this for positioning the arm at any reachable point.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "x": { "type": "number", "description": "target x in meters (SO-101 base frame, forward = +x)" },
+          "y": { "type": "number", "description": "target y in meters (left = +y, top-down view)" },
+          "z": { "type": "number", "description": "target z in meters (up = +z, table surface ≈ 0)" }
+        },
+        "required": ["x", "y", "z"]
+      }
+    },
+    {
+      "name": "place_cube_at",
+      "description": "Carry the currently-held cube to (x, y) meters and release. Call pick_cube_at first.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "x": { "type": "number", "description": "place x in meters" },
+          "y": { "type": "number", "description": "place y in meters" }
+        },
+        "required": ["x", "y"]
+      }
+    },
+    {
+      "name": "detect_blocks",
+      "description": "Capture a frame from the RGB camera and detect colored blocks (red, green, blue, yellow, black) using HSV thresholding. Returns each block's color and pixel position. Optionally filter by color.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "colors": {
+            "type": "array",
+            "items": {"type": "string", "enum": ["red", "green", "blue", "yellow", "black"]},
+            "description": "Optional list of colors to detect. If omitted, detects all colors."
+          }
+        }
+      }
+    },
+    {
+      "name": "capture_chessboard",
+      "description": "Detect a 9x6 chessboard in the current camera frame and save the image for camera intrinsics calibration. Run this 5+ times with the chessboard at different positions/angles, then run calibrate_camera.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "square_size_mm": {
+            "type": "number",
+            "description": "Chessboard square size in millimeters. Default 25."
+          }
+        }
+      }
+    },
+    {
+      "name": "calibrate_camera",
+      "description": "Run camera intrinsics calibration on all saved chessboard images (captured via capture_chessboard). Requires at least 5 images. Produces camera_intrinsics.json.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "square_size_mm": {"type": "number", "description": "Square size in mm. Default 25."}
+        }
+      }
+    },
+    {
+      "name": "hand_eye_collect",
+      "description": "Record one hand-eye calibration pose. Chessboard must be fixed on table. Arm must be at the desired pose (use move_to first). Reads current joint angles, captures frame, detects chessboard, saves pose pair.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "square_size_mm": {"type": "number", "description": "Square size in mm. Default 25."}
+        }
+      }
+    },
+    {
+      "name": "hand_eye_solve",
+      "description": "Solve AX=XB hand-eye calibration using collected poses. Requires 6+ poses. Saves hand_eye.json. Methods: tsai, park, horaud, andreff, daniilidis (default: park).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "method": {"type": "string", "enum": ["tsai", "park", "horaud", "andreff", "daniilidis"]}
+        }
+      }
+    },
+    {
+      "name": "grasp_block",
+      "description": "Autonomously pick up a colored block using hand-eye calibration. Sequence: home -> detect block via camera -> compute world position (ray-plane intersection) -> IK solve -> grasp -> lift -> detect black drop box -> release. Requires completed hand-eye calibration.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "color": {"type": "string", "enum": ["red", "green", "blue", "yellow", "black"],
+                    "description": "Block color to grasp. Default: yellow."}
+        }
+      }
+    }
+  ]
+}

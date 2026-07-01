@@ -1,0 +1,809 @@
+#!/usr/bin/env python3
+"""octos app-skill `main` — SO-101 / Adora pick-and-place with vision + calibration.
+
+octos spawns this per tool call as `main [--robot <name>] <tool_name>` with the tool
+args as JSON on stdin, and expects a single JSON object on stdout:
+{"output": <str>, "success": <bool>}.
+
+This `main` is a thin dispatcher. The imperative code (arm_skills.py, vision/,
+calibration/) lives at SKILL_PACK, defaulting to:
+  /home/dora/.octos/skills/Adora-RGB-pick
+
+Which robot to drive is selected by:
+  --robot <name>    so101 (default) or adora (1.15x scaled)
+
+Or via env overrides:
+  SKILL_PACK, MODEL_NAME, ROBOT_MANIFEST, ARM_BRIDGE_URL
+"""
+import json
+import os
+import sys
+import urllib.request
+
+
+def _emit(output, success):
+    print(json.dumps({"output": str(output), "success": bool(success)}))
+    sys.exit(0)
+
+
+def main():
+    argv = sys.argv[1:]
+    robot = None
+    if "--robot" in argv:
+        idx = argv.index("--robot")
+        if idx != 0:
+            _emit("--robot must be the first argument, before the tool name", False)
+        if len(argv) < 2:
+            _emit("--robot requires a robot name (so101, adora)", False)
+        robot = argv[1]
+        argv = argv[2:]
+    tool = argv[0] if argv else ""
+
+    raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+    try:
+        args = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError:
+        _emit(f"invalid JSON args on stdin for '{tool}'", False)
+
+    # Defaults — SKILL_PACK points to the imperative code (Adora-RGB-pick directory)
+    skill_pack = os.environ.get("SKILL_PACK",
+        "/home/dora/.octos/skills/Adora-RGB-pick")
+    os.environ.setdefault("SKILL_PACK", skill_pack)
+    os.environ.setdefault("ARM_BRIDGE_URL", "http://127.0.0.1:8768")
+    os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
+    os.environ.setdefault("no_proxy", "127.0.0.1,localhost")
+    os.environ.setdefault("CAMERA_DEVICE", "/dev/video4")
+
+    # --robot shortcut — applied BEFORE general defaults so --robot adora wins
+    KNOWN_ROBOTS = {
+        "so101": {
+            "MODEL_NAME": os.path.join(skill_pack, "mjcf/so101/so101_new_calib.xml"),
+            "ROBOT_MANIFEST": os.path.join(skill_pack, "manifests/so101-hw.json"),
+        },
+        "adora": {
+            "MODEL_NAME": os.path.join(skill_pack, "mjcf/adora/adora.xml"),
+            "ROBOT_MANIFEST": os.path.join(skill_pack, "manifests/adora-hw.json"),
+        },
+    }
+    def _infer_robot_from_bridge():
+        try:
+            data = json.dumps({"args": {}}).encode()
+            req = urllib.request.Request(
+                os.environ["ARM_BRIDGE_URL"] + "/tools/get_state",
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                payload = json.loads(resp.read().decode())
+            robot_id = str(payload.get("data", {}).get("stream", {}).get("robot_id", ""))
+            if robot_id.startswith("adora"):
+                return "adora"
+            if robot_id.startswith("so101"):
+                return "so101"
+        except Exception:
+            return None
+        return None
+
+    if not robot:
+        robot = os.environ.get("OCTOS_ROBOT") or os.environ.get("SO101_ROBOT") \
+            or _infer_robot_from_bridge() or "so101"
+    if robot in KNOWN_ROBOTS:
+        for k, v in KNOWN_ROBOTS[robot].items():
+            os.environ.setdefault(k, v)
+    else:
+        _emit(f"unknown robot '{robot}'. Known: {', '.join(sorted(KNOWN_ROBOTS))}", False)
+
+    # General defaults (only set for keys not already set by KNOWN_ROBOTS)
+    os.environ.setdefault("MODEL_NAME",
+        os.path.join(skill_pack, "mjcf/so101/so101_new_calib.xml"))
+    os.environ.setdefault("ROBOT_MANIFEST",
+        os.path.join(skill_pack, "manifests/so101-hw.json"))
+
+    sys.path.insert(0, skill_pack)
+    try:
+        import arm_skills  # needs MODEL_NAME + ROBOT_MANIFEST in env
+    except Exception as exc:
+        _emit(f"skill pack not importable from SKILL_PACK={skill_pack} ({exc}); "
+              f"set SKILL_PACK, MODEL_NAME, ROBOT_MANIFEST", False)
+
+    # Persist held-object state across octos-spawned processes
+    resolved_robot = robot if robot else "so101"
+    state_file = os.path.join(os.environ.get("TMPDIR", "/tmp"),
+                              f"octos_grasp_Adora-RGB-pick_{resolved_robot}.json")
+
+    def _save_grasp_state():
+        import numpy as np
+        st = {
+            "pick_xy": list(arm_skills._pick_xy) if arm_skills._pick_xy is not None else None,
+            "grasp_R": arm_skills._grasp_R.tolist() if arm_skills._grasp_R is not None else None,
+        }
+        try:
+            with open(state_file, "w") as fh:
+                json.dump(st, fh)
+        except OSError:
+            pass
+
+    def _restore_grasp_state():
+        import numpy as np
+        if arm_skills._pick_xy is not None or arm_skills._grasp_R is not None \
+                or not os.path.exists(state_file):
+            return
+        try:
+            with open(state_file) as fh:
+                st = json.load(fh)
+            if st.get("pick_xy") is not None:
+                arm_skills._pick_xy = tuple(st["pick_xy"])
+            if st.get("grasp_R") is not None:
+                arm_skills._grasp_R = np.array(st["grasp_R"])
+        except (OSError, ValueError):
+            pass
+
+    def _run_self_tool(name, payload, timeout=150):
+        import subprocess
+        env = os.environ.copy()
+        cmd = [sys.executable, __file__, "--robot", robot, name]
+        r = subprocess.run(
+            cmd,
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(f"{name} exited {r.returncode}: {r.stderr.strip()}")
+        try:
+            outer = json.loads(r.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"{name} returned invalid JSON: {r.stdout!r}") from exc
+        if not outer.get("success"):
+            raise RuntimeError(f"{name} failed: {outer.get('output')}")
+        output = outer.get("output", "")
+        try:
+            return json.loads(output)
+        except (TypeError, json.JSONDecodeError):
+            return output
+
+    def _current_joint_positions():
+        """Prefer live hardware state over the last commanded joint file."""
+        try:
+            data = json.dumps({"args": {}}).encode()
+            req = urllib.request.Request(
+                os.environ["ARM_BRIDGE_URL"] + "/tools/get_state",
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                payload = json.loads(resp.read().decode())
+            joints = payload.get("data", {}).get("stream", {}).get("joint_positions")
+            if isinstance(joints, list) and len(joints) >= 5:
+                return [float(v) for v in joints[:5]], "bridge_state"
+        except Exception:
+            pass
+
+        if not os.path.exists(arm_skills.JOINTS_STATE_FILE):
+            raise RuntimeError("No live joint state or cached joint angles available.")
+        with open(arm_skills.JOINTS_STATE_FILE) as f:
+            cur_joints = json.load(f)
+        return [cur_joints[k] for k in ["shoulder_pan", "shoulder_lift",
+                "elbow_flex", "wrist_flex", "wrist_roll"]], "cached_command"
+
+    def _solve_from_current(x, y, z):
+        try:
+            seed, state_source = _current_joint_positions()
+            seed = __import__("numpy").array(seed, dtype=float)
+        except Exception:
+            seed, state_source = arm_skills.HOME.copy(), "home_seed"
+        q = arm_skills._solve([float(x), float(y), float(z)], seed)
+        return q, state_source
+
+    def _project_block_candidates(blocks, T_base_to_cam, fx, fy, cx0, cy0, z_table,
+                                  image_w=640, image_h=480, reject_edges=True):
+        import numpy as _np
+
+        margin = int(os.environ.get("ADORA_GRIPPER_MASK_MARGIN_PX", "8"))
+        x_min = float(os.environ.get("ADORA_BLOCK_X_MIN", "0.18"))
+        x_max = float(os.environ.get("ADORA_BLOCK_X_MAX", "0.50"))
+        y_min = float(os.environ.get("ADORA_BLOCK_Y_MIN", "-0.20"))
+        y_max = float(os.environ.get("ADORA_BLOCK_Y_MAX", "0.25"))
+
+        projected = []
+        for block in blocks:
+            px, py = float(block["cx"]), float(block["cy"])
+            bw, bh = float(block["width"]), float(block["height"])
+            touches_edge = (
+                px - bw / 2 <= margin or px + bw / 2 >= image_w - margin or
+                py - bh / 2 <= margin or py + bh / 2 >= image_h - margin
+            )
+
+            dx, dy = (px - cx0) / fx, (py - cy0) / fy
+            a = T_base_to_cam[2, 0] * dx + T_base_to_cam[2, 1] * dy + T_base_to_cam[2, 2]
+            if abs(a) < 1e-6:
+                projected.append({**block, "reject_reason": "ray_parallel"})
+                continue
+            lam = (z_table - T_base_to_cam[2, 3]) / a
+            if lam <= 0:
+                projected.append({**block, "reject_reason": f"behind_camera:{lam:.2f}"})
+                continue
+            raw_base = T_base_to_cam @ _np.array([lam * dx, lam * dy, lam, 1.0])
+            in_workspace = x_min <= raw_base[0] <= x_max and y_min <= raw_base[1] <= y_max
+            reject_reason = None
+            if touches_edge and reject_edges:
+                reject_reason = "touches_image_edge"
+            elif not in_workspace:
+                reject_reason = "outside_adora_workspace"
+            projected.append({
+                **block,
+                "raw_base": [float(raw_base[0]), float(raw_base[1]), float(raw_base[2])],
+                "ray": {"dx": float(dx), "dy": float(dy), "lambda": float(lam)},
+                "area": float(bw * bh),
+                "touches_image_edge": bool(touches_edge),
+                "reject_reason": reject_reason,
+            })
+
+        valid = [p for p in projected if not p.get("reject_reason")]
+        if not valid:
+            return None, projected
+        return max(valid, key=lambda p: p["area"]), projected
+
+    def _locate_block_pose(color, purpose="grasp"):
+        import numpy as _np
+        from vision.camera import Camera
+        from vision.block_detector import detect_blocks
+
+        he_file = os.path.join(skill_pack, "calibration", "hand_eye.json")
+        if not os.path.exists(he_file):
+            raise RuntimeError("No hand-eye calibration. Run calibration first.")
+        with open(he_file) as f:
+            calib = json.load(f)
+        if not calib or "T_cam_in_wrist" not in calib:
+            raise RuntimeError("hand_eye.json is empty. Run hand_eye_solve first.")
+
+        T_cam_rpy = calib["T_cam_in_wrist"]["rpy"]
+        T_cam_trans = calib["T_cam_in_wrist"]["translation"]
+        fx, fy = calib["camera"]["fx"], calib["camera"]["fy"]
+        cx0, cy0 = calib["camera"]["cx"], calib["camera"]["cy"]
+        if robot == "adora":
+            Z_TABLE = float(os.environ.get(
+                "ADORA_TABLE_Z", os.environ.get("TABLE_Z", "-0.12")))
+        else:
+            Z_TABLE = float(os.environ.get(
+                "SO101_TABLE_Z", os.environ.get("TABLE_Z", calib.get("Z_table", -0.125))))
+
+        cam = Camera()
+        try:
+            frame = cam.read()
+        finally:
+            cam.close()
+        blocks = detect_blocks(frame, [color])
+        if not blocks:
+            raise RuntimeError(f"No {color} block detected from current camera pose")
+
+        R_cam = arm_skills._rpy_to_rot(T_cam_rpy)
+        T_cam_in_wrist = _np.eye(4)
+        T_cam_in_wrist[:3, :3] = R_cam
+        T_cam_in_wrist[:3, 3] = T_cam_trans
+
+        j5, state_source = _current_joint_positions()
+        fk = arm_skills.forward_kinematics(j5, with_gripper=False)
+        T_base_to_cam = fk["transform"] @ T_cam_in_wrist
+
+        if robot == "adora":
+            block, candidates = _project_block_candidates(
+                blocks, T_base_to_cam, fx, fy, cx0, cy0, Z_TABLE,
+                int(calib["camera"].get("width", 640)),
+                int(calib["camera"].get("height", 480)),
+                reject_edges=(purpose != "dropoff"),
+            )
+            if block is None:
+                raise RuntimeError("No usable block after filtering gripper/edge candidates: "
+                                   + json.dumps(candidates))
+            cx, cy = block["cx"], block["cy"]
+            dx, dy, lam = block["ray"]["dx"], block["ray"]["dy"], block["ray"]["lambda"]
+            raw_base = _np.array([block["raw_base"][0], block["raw_base"][1],
+                                  block["raw_base"][2], 1.0])
+        else:
+            block = max(blocks, key=lambda b: b["width"] * b["height"])
+            candidates = None
+            cx, cy = block["cx"], block["cy"]
+            dx, dy = (cx - cx0) / fx, (cy - cy0) / fy
+            a = T_base_to_cam[2, 0] * dx + T_base_to_cam[2, 1] * dy + T_base_to_cam[2, 2]
+            if abs(a) < 1e-6:
+                raise RuntimeError("Camera ray parallel to table plane")
+            lam = (Z_TABLE - T_base_to_cam[2, 3]) / a
+            if lam <= 0:
+                raise RuntimeError(f"Block behind camera (lambda={lam:.2f})")
+            raw_base = T_base_to_cam @ _np.array([lam * dx, lam * dy, lam, 1.0])
+
+        if robot == "adora" and purpose == "dropoff":
+            Z_EFF = Z_TABLE
+            P_base = raw_base
+            X_block = P_base[0] + float(os.environ.get("ADORA_DROPOFF_X_OFFSET", "0.0"))
+            Y_block = P_base[1] + float(os.environ.get("ADORA_DROPOFF_Y_OFFSET", "0.0"))
+        elif robot == "adora":
+            Z_EFF = Z_TABLE
+            P_base = raw_base
+            X_block = P_base[0] + float(os.environ.get("ADORA_GRASP_X_OFFSET", "0.015"))
+            Y_block = P_base[1] + float(os.environ.get("ADORA_GRASP_Y_OFFSET", "0.0"))
+        elif cx > cx0:
+            Z_EFF = Z_TABLE - 0.020
+            lam_eff = (Z_EFF - T_base_to_cam[2, 3]) / a
+            if lam_eff <= 0:
+                raise RuntimeError(f"Block behind camera (right, lambda={lam_eff:.2f})")
+            P_base = T_base_to_cam @ _np.array([lam_eff * dx, lam_eff * dy, lam_eff, 1.0])
+            X_block, Y_block = P_base[0] - 0.005, P_base[1] + 0.085
+        else:
+            Z_EFF = Z_TABLE
+            P_base = raw_base
+            X_block, Y_block = P_base[0] - 0.025, P_base[1] + 0.015
+
+        return {
+            "color": color,
+            "purpose": purpose,
+            "selected_block": block,
+            "all_blocks": blocks,
+            "candidates": candidates,
+            "state_source": state_source,
+            "joint_positions": [round(float(v), 6) for v in j5],
+            "table_z": float(Z_TABLE),
+            "effective_table_z": float(Z_EFF),
+            "raw_base": [float(raw_base[0]), float(raw_base[1]), float(raw_base[2])],
+            "center_base": [float(raw_base[0]), float(raw_base[1]), float(raw_base[2])],
+            "adjusted_base": [float(X_block), float(Y_block), float(Z_EFF)],
+            "ray": {"dx": float(dx), "dy": float(dy), "lambda": float(lam)},
+            "camera": {"fx": fx, "fy": fy, "cx": cx0, "cy": cy0},
+        }
+
+    try:
+        if tool == "get_dropoff_position":
+            _emit(arm_skills.get_plate_position(), True)
+
+        elif tool == "pick_cube_at":
+            if "x" not in args or "y" not in args or "z" not in args:
+                _emit("pick_cube_at needs numeric 'x', 'y', 'z' (meters)", False)
+            out = arm_skills.pick_at(float(args["x"]), float(args["y"]), float(args["z"]))
+            _save_grasp_state()
+            _emit(out, not str(out).startswith(("ERROR", "WARNING")))
+
+        elif tool == "set_gripper":
+            action = str(args.get("action", "")).lower()
+            if action not in ("open", "close"):
+                _emit("set_gripper needs 'action': 'open' or 'close'", False)
+            if "width" in args:
+                width = float(args["width"])
+            else:
+                width = arm_skills.GRIP_OPEN_W if action == "open" else arm_skills.GRIP_CLOSE_W
+            arm_skills._call(arm_skills.GRIP, width=width)
+            _emit(f"OK: gripper {action} (width={width:.3f}m)", True)
+
+        elif tool == "detect_blocks":
+            from vision.camera import Camera
+            from vision.block_detector import detect_blocks
+            target_colors = args.get("colors", None)
+            cam = Camera()
+            try:
+                frame = cam.read()
+                blocks = detect_blocks(frame, target_colors)
+                _emit(json.dumps({"blocks": blocks, "count": len(blocks)}), True)
+            finally:
+                cam.close()
+
+        elif tool == "locate_block":
+            color = str(args.get("color", "yellow"))
+            try:
+                pose = _locate_block_pose(color)
+            except Exception as exc:
+                _emit(str(exc), False)
+                return
+            _emit(json.dumps(pose), True)
+
+        elif tool == "locate_dropoff":
+            try:
+                pose = _locate_block_pose("black", purpose="dropoff")
+            except Exception as exc:
+                _emit(str(exc), False)
+                return
+            _emit(json.dumps(pose), True)
+
+        elif tool == "auto_calibrate":
+            import subprocess
+            script = os.path.join(skill_pack, "auto_calibrate.py")
+            env = os.environ.copy()
+            env.setdefault("CAMERA_DEVICE", os.environ.get("CAMERA_DEVICE", "/dev/video4"))
+            env.setdefault("ARM_BRIDGE_URL", os.environ.get("ARM_BRIDGE_URL", "http://127.0.0.1:8768"))
+            env.setdefault("NO_PROXY", "127.0.0.1,localhost")
+            env.setdefault("no_proxy", "127.0.0.1,localhost")
+            r = subprocess.run([sys.executable, script], capture_output=True, text=True,
+                               timeout=600, cwd=skill_pack, env=env)
+            _emit(r.stdout + ("\n" + r.stderr if r.stderr else ""), r.returncode == 0)
+
+        elif tool == "capture_chessboard":
+            from vision.camera import Camera
+            from calibration.calib_tools import capture_chessboard_image
+            sq_mm = args.get("square_size_mm", 25)
+            cam = Camera()
+            try:
+                frame = cam.read()
+                result = capture_chessboard_image(frame, sq_mm)
+            finally:
+                cam.close()
+            if result is None:
+                _emit("No chessboard detected. Make sure the 9x6 chessboard is fully visible.", False)
+            _emit(json.dumps(result), True)
+
+        elif tool == "calibrate_camera":
+            from calibration.calib_tools import calibrate_camera_intrinsics
+            sq_mm = args.get("square_size_mm", 25)
+            try:
+                result = calibrate_camera_intrinsics(sq_mm)
+            except (FileNotFoundError, ValueError) as e:
+                _emit(str(e), False)
+            else:
+                fx = result["camera_matrix"][0][0]
+                fy = result["camera_matrix"][1][1]
+                cx = result["camera_matrix"][0][2]
+                cy = result["camera_matrix"][1][2]
+                err = result["reprojection_error_px"]
+                _emit(json.dumps({
+                    "message": f"Camera calibrated: fx={fx:.1f}, fy={fy:.1f}, cx={cx:.1f}, cy={cy:.1f}, reproj_err={err:.3f}px",
+                    "intrinsics": result,
+                }), True)
+
+        elif tool == "hand_eye_collect":
+            from vision.camera import Camera
+            from calibration.calib_tools import collect_hand_eye_pose
+            sq_mm = args.get("square_size_mm", 25)
+            if not os.path.exists(arm_skills.JOINTS_STATE_FILE):
+                _emit("No joint angles available. Move the arm first with move_to or pick_cube_at.", False)
+            with open(arm_skills.JOINTS_STATE_FILE) as f:
+                joints = json.load(f)
+            cam = Camera()
+            try:
+                frame = cam.read()
+                result = collect_hand_eye_pose(frame, joints, sq_mm)
+            finally:
+                cam.close()
+            if result is None:
+                _emit("No chessboard detected. Chessboard must be fixed on table and visible from current arm pose.", False)
+            _emit(json.dumps({
+                "message": f"Hand-eye pose {result['pose_index'] + 1}/{result['total_poses']} recorded. Total: {result['total_poses']}",
+                **result,
+                "joints": {k: round(v, 2) for k, v in joints.items()},
+            }), True)
+
+        elif tool == "hand_eye_solve":
+            from calibration.calib_tools import solve_hand_eye
+            method = args.get("method", "park")
+            try:
+                result, verification = solve_hand_eye(method)
+            except (FileNotFoundError, ValueError) as e:
+                _emit(str(e), False)
+            else:
+                _emit(json.dumps({
+                    "message": (
+                        f"Hand-eye solved ({method}, {result['num_poses']} poses). "
+                        f"Z_table={result['Z_table']:.4f}m. "
+                        f"Target consistency: max_dev={verification['max_deviation_mm']:.1f}mm"
+                    ),
+                    "calibration": result,
+                    "verification": verification,
+                }), True)
+
+        elif tool == "grasp_block":
+            import time as _time
+            import numpy as _np
+            from vision.camera import Camera
+            from vision.block_detector import detect_blocks
+
+            color = str(args.get("color", "yellow"))
+            he_file = os.path.join(skill_pack, "calibration", "hand_eye.json")
+            if not os.path.exists(he_file):
+                _emit("No hand-eye calibration. Run hand_eye_collect (6+ poses) then hand_eye_solve first.", False)
+                return
+            with open(he_file) as f:
+                calib = json.load(f)
+            if not calib or "T_cam_in_wrist" not in calib:
+                _emit("hand_eye.json is empty. Run hand_eye_solve first.", False)
+                return
+
+            T_cam_rpy = calib["T_cam_in_wrist"]["rpy"]
+            T_cam_trans = calib["T_cam_in_wrist"]["translation"]
+            fx, fy = calib["camera"]["fx"], calib["camera"]["fy"]
+            cx0, cy0 = calib["camera"]["cx"], calib["camera"]["cy"]
+            if robot == "adora":
+                Z_TABLE = float(os.environ.get(
+                    "ADORA_TABLE_Z", os.environ.get("TABLE_Z", "-0.12")))
+            else:
+                Z_TABLE = float(os.environ.get(
+                    "SO101_TABLE_Z", os.environ.get("TABLE_Z", calib.get("Z_table", -0.125))))
+
+            R_cam = arm_skills._rpy_to_rot(T_cam_rpy)
+            T_cam_in_wrist = _np.eye(4)
+            T_cam_in_wrist[:3, :3] = R_cam
+            T_cam_in_wrist[:3, 3] = T_cam_trans
+
+            # 1. Open gripper (skip HOME move so camera can see the block)
+            # arm_skills._move(arm_skills.HOME.copy())
+            arm_skills._call(arm_skills.GRIP, width=arm_skills.GRIP_OPEN_W)
+            _time.sleep(1.5)
+
+            cam = Camera()
+            try:
+                try:
+                    frame = cam.read()
+                except Exception:
+                    _emit("Camera read failed. Check USB connection.", False)
+                    return
+                blocks = detect_blocks(frame, [color])
+                if not blocks:
+                    _emit(f"No {color} block detected from search position", False)
+                    return
+
+                try:
+                    j5, state_source = _current_joint_positions()
+                except Exception as exc:
+                    _emit(str(exc), False)
+                    return
+                fk = arm_skills.forward_kinematics(j5, with_gripper=False)
+                T_base_to_cam = fk["transform"] @ T_cam_in_wrist
+
+                if robot == "adora":
+                    block, candidates = _project_block_candidates(
+                        blocks, T_base_to_cam, fx, fy, cx0, cy0, Z_TABLE,
+                        int(calib["camera"].get("width", 640)),
+                        int(calib["camera"].get("height", 480)),
+                    )
+                    if block is None:
+                        _emit("No usable block after filtering gripper/edge candidates: "
+                              + json.dumps(candidates), False)
+                        return
+                    cx, cy = block["cx"], block["cy"]
+                    dx, dy, lam = block["ray"]["dx"], block["ray"]["dy"], block["ray"]["lambda"]
+                    a = T_base_to_cam[2, 0] * dx + T_base_to_cam[2, 1] * dy + T_base_to_cam[2, 2]
+                else:
+                    block = max(blocks, key=lambda b: b["width"] * b["height"])
+                    candidates = None
+                    cx, cy = block["cx"], block["cy"]
+                    dx, dy = (cx - cx0) / fx, (cy - cy0) / fy
+                    a = T_base_to_cam[2, 0] * dx + T_base_to_cam[2, 1] * dy + T_base_to_cam[2, 2]
+                    b = Z_TABLE - T_base_to_cam[2, 3]
+                    if abs(a) < 1e-6:
+                        _emit("Camera ray parallel to table plane", False)
+                        return
+                    lam = b / a
+                    if lam <= 0:
+                        _emit(f"Block behind camera (lambda={lam:.2f})", False)
+                        return
+
+                # Per-setup calibration offsets for camera-to-gripper misalignment
+                if robot == "adora":
+                    Z_EFF = Z_TABLE
+                    P_base = _np.array([block["raw_base"][0], block["raw_base"][1],
+                                        block["raw_base"][2], 1.0])
+                    X_block = P_base[0] + float(os.environ.get("ADORA_GRASP_X_OFFSET", "0.015"))
+                    Y_block = P_base[1] + float(os.environ.get("ADORA_GRASP_Y_OFFSET", "0.0"))
+                elif cx > cx0:
+                    Z_EFF = Z_TABLE - 0.020
+                    b_r = Z_EFF - T_base_to_cam[2, 3]
+                    lam_r = b_r / a
+                    if lam_r <= 0:
+                        _emit(f"Block behind camera (right, lambda={lam_r:.2f})", False)
+                        return
+                    P_base = T_base_to_cam @ _np.array([lam_r*dx, lam_r*dy, lam_r, 1.0])
+                    X_block, Y_block = P_base[0] - 0.005, P_base[1] + 0.085
+                else:
+                    Z_EFF = Z_TABLE
+                    P_base = T_base_to_cam @ _np.array([lam*dx, lam*dy, lam, 1.0])
+                    X_block, Y_block = P_base[0] - 0.025, P_base[1] + 0.015
+
+                if robot == "adora":
+                    target_z = float(os.environ.get(
+                        "ADORA_GRASP_TARGET_Z",
+                        os.environ.get("GRASP_TARGET_Z", "-0.090")))
+                else:
+                    target_z = float(os.environ.get("GRASP_TARGET_Z", arm_skills.GRASP_Z))
+                target = (float(X_block), float(Y_block), target_z)
+                ik = arm_skills._solve(list(target), arm_skills.HOME.copy())
+                if ik is None:
+                    _emit(f"IK failed for target {target}", False)
+                    return
+
+                arm_skills._move(ik)
+                _time.sleep(3.0)
+                arm_skills._call(arm_skills.GRIP, width=arm_skills.GRIP_CLOSE_W)
+                _time.sleep(3.0)
+
+                # Persist grasp state for place_cube_at fallback
+                arm_skills._pick_xy = (float(X_block), float(Y_block))
+                arm_skills._grasp_R = arm_skills._d.site_xmat[arm_skills._site].reshape(3, 3).copy()
+
+                lift_z = float(os.environ.get(
+                    "GRASP_LIFT_Z", max(float(arm_skills.LIFT_ZS[0]), target_z + 0.04)))
+                lift_ik = arm_skills._solve(
+                    [float(X_block), float(Y_block), lift_z], ik)
+                if lift_ik is not None:
+                    arm_skills._move(lift_ik)
+                    _time.sleep(2.0)
+
+                if robot == "adora":
+                    _save_grasp_state()
+                    _emit(json.dumps({
+                        "grasped": True, "color": color, "method": "hand_eye_ik",
+                        "block_world": [round(float(X_block), 4), round(float(Y_block), 4),
+                                        round(float(Z_EFF), 4)],
+                        "state_source": state_source,
+                        "table_z": round(float(Z_TABLE), 4),
+                        "target_z": round(float(target_z), 4),
+                        "target_joints": [round(float(x), 2) for x in ik],
+                        "dropped": False,
+                        "note": "ADORA grasp stops after lift; no automatic drop/home.",
+                    }), True)
+
+                arm_skills._move(arm_skills.HOME.copy())
+                _time.sleep(3.0)
+                _save_grasp_state()
+
+                try:
+                    drop_frame = cam.read()
+                    drop_blocks = detect_blocks(drop_frame, ["black"])
+                    dropped = False
+                    if drop_blocks:
+                        bb = max(drop_blocks, key=lambda b: b["width"] * b["height"])
+                        with open(arm_skills.JOINTS_STATE_FILE) as f:
+                            dj = json.load(f)
+                        j5d = [dj[k] for k in ["shoulder_pan", "shoulder_lift",
+                                "elbow_flex", "wrist_flex", "wrist_roll"]]
+                        fk_d = arm_skills.forward_kinematics(j5d, with_gripper=False)
+                        T_bc_d = fk_d["transform"] @ T_cam_in_wrist
+                        dx_d = (bb["cx"] - cx0) / fx
+                        dy_d = (bb["cy"] - cy0) / fy
+                        Z_DROP = -0.02
+                        a_d = T_bc_d[2,0]*dx_d + T_bc_d[2,1]*dy_d + T_bc_d[2,2]
+                        lam_d = (Z_DROP - T_bc_d[2,3]) / a_d
+                        P_d = T_bc_d @ _np.array([lam_d*dx_d, lam_d*dy_d, lam_d, 1.0])
+                        drop_ik = arm_skills._solve(
+                            [float(P_d[0]), float(P_d[1]), Z_DROP], j5d)
+                        if drop_ik is not None:
+                            arm_skills._move(drop_ik)
+                            _time.sleep(2.0)
+                            arm_skills._call(arm_skills.GRIP, width=arm_skills.GRIP_OPEN_W)
+                            _time.sleep(1.5)
+                            dropped = True
+                except Exception:
+                    dropped = False
+
+                arm_skills._call(arm_skills.NAMED, name="home", control_source="octos")
+                _emit(json.dumps({
+                    "grasped": True, "color": color, "method": "hand_eye_ik",
+                    "block_world": [round(float(X_block), 4), round(float(Y_block), 4),
+                                    round(float(Z_EFF), 4)],
+                    "state_source": state_source,
+                    "table_z": round(float(Z_TABLE), 4),
+                    "target_z": round(float(target_z), 4),
+                    "target_joints": [round(float(x), 2) for x in ik],
+                    "dropped": dropped,
+                }), True)
+            finally:
+                cam.close()
+
+        elif tool == "move_to":
+            if "x" not in args or "y" not in args or "z" not in args:
+                _emit("move_to needs numeric 'x', 'y', 'z' (meters)", False)
+            q = arm_skills._solve([float(args["x"]), float(args["y"]), float(args["z"])],
+                                  arm_skills.HOME.copy())
+            if q is None:
+                _emit(f"IK failed for target ({args['x']}, {args['y']}, {args['z']})", False)
+            arm_skills._move(q)
+            _emit(f"OK: moved to ({args['x']}, {args['y']}, {args['z']})", True)
+
+        elif tool == "place_cube_at":
+            if "x" not in args or "y" not in args:
+                _emit("place_cube_at needs numeric 'x' and 'y' (meters)", False)
+            _restore_grasp_state()
+            out = arm_skills.place_at(float(args["x"]), float(args["y"]))
+            ok = not str(out).startswith(("ERROR", "WARNING"))
+            if ok:
+                try:
+                    os.remove(state_file)
+                except OSError:
+                    pass
+            _emit(out, ok)
+
+        elif tool == "place_held_above":
+            if "x" not in args or "y" not in args:
+                _emit("place_held_above needs numeric 'x' and 'y' (meters)", False)
+            z = float(args.get("z", os.environ.get(
+                "ADORA_PLACE_ABOVE_Z", str(arm_skills.APPROACH_Z))))
+            q, state_source = _solve_from_current(args["x"], args["y"], z)
+            if q is None:
+                _emit(f"IK failed for place-above target ({args['x']}, {args['y']}, {z})", False)
+            arm_skills._move(q)
+            _emit(json.dumps({
+                "moved": True, "step": "place_held_above",
+                "target": [float(args["x"]), float(args["y"]), z],
+                "state_source": state_source,
+            }), True)
+
+        elif tool == "place_held_down":
+            if "x" not in args or "y" not in args:
+                _emit("place_held_down needs numeric 'x' and 'y' (meters)", False)
+            z = float(args.get("z", os.environ.get("ADORA_PLACE_Z", "-0.06")))
+            q, state_source = _solve_from_current(args["x"], args["y"], z)
+            if q is None:
+                _emit(f"IK failed for place-down target ({args['x']}, {args['y']}, {z})", False)
+            arm_skills._move(q)
+            _emit(json.dumps({
+                "moved": True, "step": "place_held_down",
+                "target": [float(args["x"]), float(args["y"]), z],
+                "state_source": state_source,
+            }), True)
+
+        elif tool == "release_cube":
+            width = float(args.get("width", arm_skills.GRIP_OPEN_W))
+            arm_skills._call(arm_skills.GRIP, width=width)
+            try:
+                os.remove(state_file)
+            except OSError:
+                pass
+            _emit(json.dumps({"released": True, "width": width}), True)
+
+        elif tool == "retract_after_release":
+            if "x" not in args or "y" not in args:
+                _emit("retract_after_release needs numeric 'x' and 'y' (meters)", False)
+            z = float(args.get("z", os.environ.get("ADORA_RETRACT_Z", "0.10")))
+            q, state_source = _solve_from_current(args["x"], args["y"], z)
+            if q is None:
+                _emit(f"IK failed for retract target ({args['x']}, {args['y']}, {z})", False)
+            arm_skills._move(q)
+            _emit(json.dumps({
+                "moved": True, "step": "retract_after_release",
+                "target": [float(args["x"]), float(args["y"]), z],
+                "state_source": state_source,
+            }), True)
+
+        elif tool == "grasp_yellow_to_black_box":
+            # Hidden backup macro: intentionally omitted from manifest.json so
+            # Octos chat exposes the primitive tools and the LLM can decompose
+            # the task. Keep this branch for direct CLI fallback or future
+            # deterministic operation.
+            color = str(args.get("color", "yellow"))
+            down_z = float(args.get("place_z", os.environ.get("ADORA_PLACE_Z", "-0.06")))
+
+            steps = []
+            grasp = _run_self_tool("grasp_block", {"color": color}, timeout=150)
+            steps.append({"tool": "grasp_block", "result": grasp})
+
+            dropoff = _run_self_tool("locate_dropoff", {}, timeout=45)
+            steps.append({"tool": "locate_dropoff", "result": dropoff})
+            base = dropoff.get("adjusted_base") or dropoff.get("center_base")
+            if not isinstance(base, list) or len(base) < 2:
+                raise RuntimeError(f"locate_dropoff returned no usable base coordinate: {dropoff}")
+            x, y = float(base[0]), float(base[1])
+
+            above = _run_self_tool("place_held_above", {"x": x, "y": y}, timeout=120)
+            steps.append({"tool": "place_held_above", "result": above})
+            down = _run_self_tool("place_held_down", {"x": x, "y": y, "z": down_z}, timeout=120)
+            steps.append({"tool": "place_held_down", "result": down})
+            release = _run_self_tool("release_cube", {}, timeout=45)
+            steps.append({"tool": "release_cube", "result": release})
+            retract = _run_self_tool("retract_after_release", {"x": x, "y": y}, timeout=120)
+            steps.append({"tool": "retract_after_release", "result": retract})
+
+            _emit(json.dumps({
+                "completed": True,
+                "color": color,
+                "dropoff_xy": [round(x, 4), round(y, 4)],
+                "place_z": down_z,
+                "steps": steps,
+            }), True)
+
+        else:
+            _emit(f"unknown tool '{tool}'", False)
+    except Exception as exc:
+        _emit(f"{tool} failed: {exc}", False)
+
+
+if __name__ == "__main__":
+    main()
