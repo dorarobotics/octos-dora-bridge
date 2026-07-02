@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  One-shot setup for the SO-101 pick-and-place demo.
+#  One-shot setup for the legacy SO-101 MuJoCo pick-and-place demo.
+#
+#  IMPORTANT:
+#  This script is for the SO-101 simulation demo only. Do not use it for ADORA
+#  hardware. ADORA hardware uses:
+#
+#      bash scripts/setup_adora_hw.sh
+#
+#  and then:
+#
+#      ADORA_VENV_PYTHON=<venv>/bin/python bash skills/Adora-RGB-pick/start_bridge.sh
 #
 #  Run from inside an octos-dora-bridge checkout:
-#      bash setup.sh
+#      bash scripts/setup.sh
 #
 #  It clones the other two repos AS SIBLINGS, creates a venv, and installs the
 #  Python deps so `examples/run-so101-demo.sh` just works. Idempotent — re-running
@@ -16,7 +26,8 @@
 # ============================================================================
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # octos-dora-bridge
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERE="$(cd "$SCRIPT_DIR/.." && pwd)"   # octos-dora-bridge
 PARENT="$(cd "$HERE/.." && pwd)"
 BRANCH="${BRANCH:-feat/so101}"
 VENV="${VENV:-$PARENT/venv}"

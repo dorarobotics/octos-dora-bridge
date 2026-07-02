@@ -6,6 +6,8 @@ __pycache__/
 .ruff_cache/
 .dora/
 out/
+.adora-hw-run/
+skills/*/.run/
 *.swp
 .venv/
 venv/
@@ -21,6 +23,10 @@ dist/
 
 # Local docs (planning, internal notes)
 docs/
+out/
+venv-python
+SO101_DEMO_RUNBOOK.md
+.octos/
 
 # Claude Code
 .claude/

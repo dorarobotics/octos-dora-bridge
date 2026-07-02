@@ -48,11 +48,11 @@ done
 **Quick path — one command.** From inside an `octos-dora-bridge` checkout:
 
 ```bash
-bash setup.sh          # clones the other two repos as siblings, makes a venv, installs deps
-# WITH_AGENT=1 bash setup.sh   # also sets up the optional LLM-agent variant (see below)
+bash scripts/setup.sh          # clones the other two repos as siblings, makes a venv, installs deps
+# WITH_AGENT=1 bash scripts/setup.sh   # also sets up the optional LLM-agent variant (see below)
 ```
 
-`setup.sh` is idempotent (re-running skips what's already there) and prints the exact
+`scripts/setup.sh` is idempotent (re-running skips what's already there) and prints the exact
 run command at the end. It can't install the `dora` CLI for you — see the note below.
 
 **Manual path**, if you prefer to do it yourself:
@@ -143,7 +143,7 @@ green plate"* and sequences the skill tools itself. It needs just two things:
    ollama serve        # serves an OpenAI-compatible API on :11434
    ```
 
-`WITH_AGENT=1 bash setup.sh` installs `openai` and reminds you about Ollama. No API
+`WITH_AGENT=1 bash scripts/setup.sh` installs `openai` and reminds you about Ollama. No API
 keys are involved — the agent talks to your **local** Ollama (`api_key="ollama"` is a
 placeholder); `OPENAI_API_KEY` is only read if you repoint the provider at OpenAI.
 
@@ -183,7 +183,7 @@ this repo ships all three under `skills/so101/` (and `skills/rebot/`):
 curl -fsSL https://github.com/dorarobotics/octos/releases/latest/download/install.sh | bash
 export ANTHROPIC_API_KEY=...          # or configure a local Ollama provider
 
-# 2. install the dora-side runtime (same 3 repos as above; e.g. via setup.sh)
+# 2. install the dora-side runtime (same 3 repos as above; e.g. via scripts/setup.sh)
 #    — gives you the bridge, vendor node, dora-moveit2, in a venv with mujoco
 
 # 3. sideload the skill into octos

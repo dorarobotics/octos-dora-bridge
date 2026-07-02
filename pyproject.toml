@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "octos-dora-bridge-runtime"
+version = "0.1.0"
+description = "Runtime dependency sets for octos-dora-bridge robot integrations"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+adora-hw = [
+  "dora-rs==0.4.1",
+  "pyarrow==24.0.0",
+  "fastapi==0.138.0",
+  "uvicorn[standard]==0.49.0",
+  "httpx==0.28.1",
+  "PyYAML==6.0.3",
+  "numpy==2.2.6",
+  "scipy==1.15.3",
+  "lerobot==0.4.4",
+  "draccus==0.10.0",
+  "torch==2.7.1",
+  "torchvision==0.22.1",
+  "torchcodec==0.5",
+  "accelerate==1.13.0",
+  "datasets==4.1.1",
+  "av==15.1.0",
+  "einops==0.8.2",
+  "pyserial==3.5",
+]
+
+[tool.setuptools]
+packages = []
