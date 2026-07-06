@@ -1,0 +1,55 @@
+{
+  "name": "gemini-depth-perception",
+  "version": "0.1.0",
+  "author": "dorarobotics",
+  "description": "Robot-agnostic Orbbec Gemini 335 RGB-D object perception with color filtering, depth distance, real-size estimation, and camera-frame 3D location.",
+  "timeout_secs": 30,
+  "requires_network": false,
+  "tools": [
+    {
+      "name": "detect_objects",
+      "description": "Detect colored objects from Gemini 335 RGB-D data and filter by category, color, and actual metric size range. Does not move any robot.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string", "description": "Object category. Current color detector treats cube as the primary category.", "default": "cube" },
+          "color": { "type": "string", "enum": ["red", "yellow", "green", "blue", "black"], "description": "Optional target color." },
+          "size_range_m": {
+            "type": "object",
+            "properties": {
+              "min_width": { "type": "number" },
+              "max_width": { "type": "number" },
+              "min_height": { "type": "number" },
+              "max_height": { "type": "number" }
+            },
+            "description": "Actual object size range in meters."
+          }
+        }
+      }
+    },
+    {
+      "name": "locate_object_camera",
+      "description": "Return the best matching object's distance, estimated actual size, and 3D point in the Gemini 335 camera frame.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string", "default": "cube" },
+          "color": { "type": "string", "enum": ["red", "yellow", "green", "blue", "black"] },
+          "size_range_m": { "type": "object" }
+        }
+      }
+    },
+    {
+      "name": "get_object_distance",
+      "description": "Return only the best matching object's distance and estimated real size from Gemini 335 depth.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string", "default": "cube" },
+          "color": { "type": "string", "enum": ["red", "yellow", "green", "blue", "black"] },
+          "size_range_m": { "type": "object" }
+        }
+      }
+    }
+  ]
+}

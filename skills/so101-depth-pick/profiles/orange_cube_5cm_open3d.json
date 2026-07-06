@@ -1,0 +1,34 @@
+{
+  "detector": "open3d_geometry",
+  "category": "object",
+  "move_to_perception_pose": true,
+  "perception_joint_state": [-0.132722, -0.870747, 0.56004, 1.258939, -0.53549],
+  "perception_pose_timeout_s": 35.0,
+  "size_range_m": {
+    "min_width": 0.045,
+    "max_width": 0.095,
+    "min_height": 0.045,
+    "max_height": 0.095
+  },
+  "workspace_bounds_m": {
+    "x": [-0.45, 0.45],
+    "y": [-0.35, 0.35],
+    "z": [0.15, 0.9]
+  },
+  "open3d_image_roi_fraction": {
+    "x_min": 0.0,
+    "x_max": 1.0,
+    "y_min": 0.0,
+    "y_max": 0.88
+  },
+  "open3d_voxel_size_m": 0.004,
+  "open3d_table_threshold_m": 0.012,
+  "open3d_dbscan_eps_m": 0.025,
+  "open3d_dbscan_min_points": 20,
+  "open3d_min_cluster_points": 50,
+  "object_height_m": 0.05,
+  "grasp_height_ratio": 0.35,
+  "min_grasp_clearance_m": 0.008,
+  "open_width": 0.06,
+  "closed_width": 0.0
+}

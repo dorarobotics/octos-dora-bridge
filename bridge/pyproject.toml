@@ -26,7 +26,7 @@ octos-spec-bridge = "octos_spec_bridge.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["octos_spec_bridge*"]
+include = ["octos_spec_bridge*", "octos_depth_perception*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

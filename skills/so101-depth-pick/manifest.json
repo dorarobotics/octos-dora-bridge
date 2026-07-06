@@ -1,0 +1,335 @@
+{
+  "name": "so101-depth-pick",
+  "version": "0.1.0",
+  "author": "dorarobotics",
+  "description": "SO101 + Orbbec Gemini 335 RGB-D pick skill with color-size, YOLO segmentation, or Open3D-style point-cloud perception, depth localization, and camera/base-frame transforms.",
+  "timeout_secs": 180,
+  "requires_network": true,
+  "tools": [
+    {
+      "name": "detect_objects",
+      "description": "Detect objects with Gemini 335 RGB-D using color-size, YOLO segmentation, or Open3D-style point-cloud geometry. Returns camera-frame RGB-D detections; does not move the arm.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": "string", "description": "Optional profile name from skills/so101-depth-pick/profiles; call args override profile values." },
+          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
+          "category": { "type": "string", "default": "cube" },
+          "color": { "type": "string", "enum": ["red", "orange", "yellow", "green", "blue", "black"] },
+          "size_range_m": {
+            "type": "object",
+            "properties": {
+              "min_width": { "type": "number" },
+              "max_width": { "type": "number" },
+              "min_height": { "type": "number" },
+              "max_height": { "type": "number" }
+            }
+          },
+          "min_valid_ratio": { "type": "number", "default": 0.15 },
+          "min_area_px": { "type": "integer", "default": 120 },
+          "yolo_model_path": { "type": "string" },
+          "yolo_confidence": { "type": "number", "default": 0.25 },
+          "yolo_device": { "type": "string", "default": "cpu" },
+          "yolo_classes": { "type": "array", "items": { "type": "string" } },
+          "workspace_bounds_m": { "type": "object" },
+          "open3d_voxel_size_m": { "type": "number", "default": 0.005 },
+          "open3d_table_threshold_m": { "type": "number", "default": 0.01 },
+          "open3d_dbscan_eps_m": { "type": "number", "default": 0.025 },
+          "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
+          "open3d_min_cluster_points": { "type": "integer", "default": 80 },
+          "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." }
+        }
+      }
+    },
+    {
+      "name": "diagnose_perception",
+      "description": "Diagnose Gemini 335 perception without moving the arm. Supports color-size, YOLO segmentation, and Open3D-style geometry detectors.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": "string", "description": "Optional profile name from skills/so101-depth-pick/profiles; call args override profile values." },
+          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
+          "category": { "type": "string", "default": "cube" },
+          "color": { "type": "string", "enum": ["red", "orange", "yellow", "green", "blue", "black"] },
+          "size_range_m": {
+            "type": "object",
+            "properties": {
+              "min_width": { "type": "number" },
+              "max_width": { "type": "number" },
+              "min_height": { "type": "number" },
+              "max_height": { "type": "number" }
+            }
+          },
+          "min_valid_ratio": { "type": "number", "default": 0.15 },
+          "min_area_px": { "type": "integer", "default": 120 },
+          "yolo_model_path": { "type": "string" },
+          "yolo_confidence": { "type": "number", "default": 0.25 },
+          "yolo_device": { "type": "string", "default": "cpu" },
+          "yolo_classes": { "type": "array", "items": { "type": "string" } },
+          "workspace_bounds_m": { "type": "object" },
+          "open3d_voxel_size_m": { "type": "number", "default": 0.005 },
+          "open3d_table_threshold_m": { "type": "number", "default": 0.01 },
+          "open3d_dbscan_eps_m": { "type": "number", "default": 0.025 },
+          "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
+          "open3d_min_cluster_points": { "type": "integer", "default": 80 },
+          "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." }
+        }
+      }
+    },
+    {
+      "name": "locate_object_camera",
+      "description": "Return the best matching object's Gemini 335 camera-frame 3D point, distance, and actual metric size.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": "string", "description": "Optional profile name from skills/so101-depth-pick/profiles; call args override profile values." },
+          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
+          "category": { "type": "string", "default": "cube" },
+          "color": { "type": "string" },
+          "size_range_m": { "type": "object" },
+          "min_valid_ratio": { "type": "number", "default": 0.15 },
+          "min_area_px": { "type": "integer", "default": 120 },
+          "base_x_offset_m": { "type": "number", "default": 0.0 },
+          "base_y_offset_m": { "type": "number", "default": 0.0 },
+          "yolo_model_path": { "type": "string" },
+          "yolo_confidence": { "type": "number", "default": 0.25 },
+          "yolo_device": { "type": "string", "default": "cpu" },
+          "yolo_classes": { "type": "array", "items": { "type": "string" } },
+          "workspace_bounds_m": { "type": "object" },
+          "open3d_voxel_size_m": { "type": "number", "default": 0.005 },
+          "open3d_table_threshold_m": { "type": "number", "default": 0.01 },
+          "open3d_dbscan_eps_m": { "type": "number", "default": 0.025 },
+          "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
+          "open3d_min_cluster_points": { "type": "integer", "default": 80 },
+          "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." }
+        }
+      }
+    },
+    {
+      "name": "locate_object_base",
+      "description": "Return the best matching object transformed into the SO101 base frame using hand-eye calibration and live joint state.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": "string", "description": "Optional profile name from skills/so101-depth-pick/profiles; call args override profile values." },
+          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
+          "category": { "type": "string", "default": "cube" },
+          "color": { "type": "string" },
+          "size_range_m": { "type": "object" },
+          "min_valid_ratio": { "type": "number", "default": 0.15 },
+          "min_area_px": { "type": "integer", "default": 120 },
+          "base_x_offset_m": { "type": "number", "default": 0.0 },
+          "base_y_offset_m": { "type": "number", "default": 0.0 },
+          "move_to_perception_pose": { "type": "boolean", "default": false },
+          "perception_pose_name": { "type": "string", "description": "Optional named arm pose to move to before base-frame perception." },
+          "perception_joint_state": { "type": "array", "items": { "type": "number" }, "minItems": 5, "maxItems": 5, "description": "Optional 5-joint arm pose to move to before base-frame perception." },
+          "perception_pose_timeout_s": { "type": "number", "default": 45.0 },
+          "yolo_model_path": { "type": "string" },
+          "yolo_confidence": { "type": "number", "default": 0.25 },
+          "yolo_device": { "type": "string", "default": "cpu" },
+          "yolo_classes": { "type": "array", "items": { "type": "string" } },
+          "workspace_bounds_m": { "type": "object" },
+          "open3d_voxel_size_m": { "type": "number", "default": 0.005 },
+          "open3d_table_threshold_m": { "type": "number", "default": 0.01 },
+          "open3d_dbscan_eps_m": { "type": "number", "default": 0.025 },
+          "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
+          "open3d_min_cluster_points": { "type": "integer", "default": 80 },
+          "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." }
+        }
+      }
+    },
+    {
+      "name": "grasp_object",
+      "description": "Detect and grasp a matching object using Gemini 335 depth, SO101 hand-eye transform, and SO101 arm control.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": "string", "description": "Optional profile name from skills/so101-depth-pick/profiles; call args override profile values." },
+          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
+          "category": { "type": "string", "default": "cube" },
+          "color": { "type": "string" },
+          "size_range_m": { "type": "object" },
+          "min_valid_ratio": { "type": "number", "default": 0.15 },
+          "min_area_px": { "type": "integer", "default": 120 },
+          "base_x_offset_m": { "type": "number", "default": 0.0 },
+          "base_y_offset_m": { "type": "number", "default": 0.0 },
+          "move_to_perception_pose": { "type": "boolean", "default": false },
+          "perception_pose_name": { "type": "string", "description": "Optional named arm pose to move to before base-frame perception." },
+          "perception_joint_state": { "type": "array", "items": { "type": "number" }, "minItems": 5, "maxItems": 5, "description": "Optional 5-joint arm pose to move to before base-frame perception." },
+          "perception_pose_timeout_s": { "type": "number", "default": 45.0 },
+          "object_height_m": { "type": "number", "default": 0.03 },
+          "grasp_height_ratio": { "type": "number", "default": 0.35 },
+          "min_grasp_clearance_m": { "type": "number", "default": 0.008 },
+          "high_z": { "type": "number", "default": 0.08 },
+          "pregrasp_z": { "type": "number" },
+          "lift_z": { "type": "number", "default": 0.07 },
+          "open_width": { "type": "number", "default": 0.06 },
+          "closed_width": { "type": "number", "default": 0.0 },
+          "show_viewer": { "type": "boolean", "default": false },
+          "viewer_live": { "type": "boolean", "default": false },
+          "viewer_max_fps": { "type": "number", "default": 6.0 },
+          "viewer_window": { "type": "string", "default": "SO101 pick monitor" },
+          "viewer_save_path": { "type": "string", "default": "/tmp/octos_pick_view/last_overlay.png" },
+          "yolo_model_path": { "type": "string" },
+          "yolo_confidence": { "type": "number", "default": 0.25 },
+          "yolo_device": { "type": "string", "default": "cpu" },
+          "yolo_classes": { "type": "array", "items": { "type": "string" } },
+          "workspace_bounds_m": { "type": "object" },
+          "open3d_voxel_size_m": { "type": "number", "default": 0.005 },
+          "open3d_table_threshold_m": { "type": "number", "default": 0.01 },
+          "open3d_dbscan_eps_m": { "type": "number", "default": 0.025 },
+          "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
+          "open3d_min_cluster_points": { "type": "integer", "default": 80 },
+          "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." }
+        }
+      }
+    },
+    {
+      "name": "plan_grasp_camera",
+      "description": "Plan a camera-frame grasp for the best matching Gemini 335 RGB-D detection. geometry_topdown is default; anygrasp remains optional.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": "string", "description": "Optional profile name from skills/so101-depth-pick/profiles; call args override profile values." },
+          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
+          "grasp_planner": { "type": "string", "enum": ["geometry_topdown", "anygrasp"], "default": "geometry_topdown" },
+          "category": { "type": "string", "default": "cube" },
+          "color": { "type": "string" },
+          "size_range_m": { "type": "object" },
+          "min_valid_ratio": { "type": "number", "default": 0.15 },
+          "min_area_px": { "type": "integer", "default": 120 },
+          "yolo_model_path": { "type": "string" },
+          "yolo_confidence": { "type": "number", "default": 0.25 },
+          "yolo_device": { "type": "string", "default": "cpu" },
+          "yolo_classes": { "type": "array", "items": { "type": "string" } },
+          "workspace_bounds_m": { "type": "object" },
+          "open3d_voxel_size_m": { "type": "number", "default": 0.005 },
+          "open3d_table_threshold_m": { "type": "number", "default": 0.01 },
+          "open3d_dbscan_eps_m": { "type": "number", "default": 0.025 },
+          "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
+          "open3d_min_cluster_points": { "type": "integer", "default": 80 },
+          "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." },
+          "workspace_bounds_m": { "type": "object" },
+          "open3d_voxel_size_m": { "type": "number", "default": 0.005 },
+          "open3d_table_threshold_m": { "type": "number", "default": 0.01 },
+          "open3d_dbscan_eps_m": { "type": "number", "default": 0.025 },
+          "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
+          "open3d_min_cluster_points": { "type": "integer", "default": 80 },
+          "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." },
+          "anygrasp_checkpoint_path": { "type": "string" },
+          "max_gripper_width": { "type": "number", "default": 0.08 },
+          "gripper_height": { "type": "number", "default": 0.03 },
+          "top_down_grasp": { "type": "boolean", "default": false },
+          "apply_object_mask": { "type": "boolean", "default": true },
+          "dense_grasp": { "type": "boolean", "default": false },
+          "collision_detection": { "type": "boolean", "default": true },
+          "bbox_margin_px": { "type": "integer", "default": 8 }
+        }
+      }
+    },
+    {
+      "name": "move_pinch_to_base_point",
+      "description": "Experimental SO101 motion: solve IK against the Mujoco pinch site for an explicit real base-frame point, then execute via move_to_joint_state.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "z": { "type": "number" },
+          "tcp_offset_in_gripper_m": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "Optional calibrated true TCP offset in the MuJoCo gripper body frame. Defaults to the XML pinch site when omitted."
+          },
+          "table_z": { "type": "number", "default": 0.0 },
+          "seed": { "type": "string", "enum": ["current", "home"], "default": "current" },
+          "iters": { "type": "integer", "default": 300 }
+        },
+        "required": ["x", "y", "z"]
+      }
+    },
+    {
+      "name": "pick_cube_at",
+      "description": "Low-level SO101 pick at explicit base-frame x/y/z coordinates in meters.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "z": { "type": "number" }
+        },
+        "required": ["x", "y", "z"]
+      }
+    },
+    {
+      "name": "set_gripper",
+      "description": "Open or close the SO101 gripper.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["open", "close"] },
+          "width": { "type": "number" }
+        },
+        "required": ["action"]
+      }
+    },
+    {
+      "name": "pick_yellow_to_black_box",
+      "description": "Full SO101 workflow: detect a target object, grasp it with a table-safe height, locate the black drop-off box, place the object, release, and retract.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": "string", "description": "Optional target profile name from skills/so101-depth-pick/profiles; call args override profile values." },
+          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
+          "grasp_planner": { "type": "string", "enum": ["geometry_topdown", "anygrasp"], "default": "geometry_topdown" },
+          "category": { "type": "string", "default": "cube" },
+          "color": { "type": "string", "default": "yellow" },
+          "box_color": { "type": "string", "default": "black" },
+          "size_range_m": { "type": "object" },
+          "min_valid_ratio": { "type": "number", "default": 0.15 },
+          "min_area_px": { "type": "integer", "default": 120 },
+          "yolo_model_path": { "type": "string" },
+          "yolo_confidence": { "type": "number", "default": 0.25 },
+          "yolo_device": { "type": "string", "default": "cpu" },
+          "yolo_classes": { "type": "array", "items": { "type": "string" } },
+          "move_to_perception_pose": { "type": "boolean", "default": false },
+          "perception_pose_name": { "type": "string", "description": "Optional named arm pose to move to before base-frame perception." },
+          "perception_joint_state": { "type": "array", "items": { "type": "number" }, "minItems": 5, "maxItems": 5, "description": "Optional 5-joint arm pose to move to before base-frame perception." },
+          "perception_pose_timeout_s": { "type": "number", "default": 45.0 },
+          "workspace_bounds_m": { "type": "object" },
+          "open3d_voxel_size_m": { "type": "number", "default": 0.005 },
+          "open3d_table_threshold_m": { "type": "number", "default": 0.01 },
+          "open3d_dbscan_eps_m": { "type": "number", "default": 0.025 },
+          "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
+          "open3d_min_cluster_points": { "type": "integer", "default": 80 },
+          "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." },
+          "workspace_bounds_m": { "type": "object" },
+          "open3d_voxel_size_m": { "type": "number", "default": 0.005 },
+          "open3d_table_threshold_m": { "type": "number", "default": 0.01 },
+          "open3d_dbscan_eps_m": { "type": "number", "default": 0.025 },
+          "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
+          "open3d_min_cluster_points": { "type": "integer", "default": 80 },
+          "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." },
+          "anygrasp_checkpoint_path": { "type": "string" },
+          "object_height_m": { "type": "number", "default": 0.03 },
+          "grasp_height_ratio": { "type": "number", "default": 0.35 },
+          "min_grasp_clearance_m": { "type": "number", "default": 0.008 },
+          "table_clearance_m": { "type": "number", "default": 0.04 },
+          "top_bias_m": { "type": "number", "default": 0.006 },
+          "high_z": { "type": "number", "default": 0.08 },
+          "lift_z": { "type": "number", "default": 0.07 },
+          "place_above_z": { "type": "number", "default": 0.08 },
+          "place_z": { "type": "number", "default": -0.03 },
+          "retract_z": { "type": "number", "default": 0.08 },
+          "show_viewer": { "type": "boolean", "default": false },
+          "viewer_live": { "type": "boolean", "default": false },
+          "viewer_max_fps": { "type": "number", "default": 6.0 },
+          "viewer_window": { "type": "string", "default": "SO101 pick monitor" },
+          "viewer_save_path": { "type": "string", "default": "/tmp/octos_pick_view/last_overlay.png" }
+        }
+      }
+    }
+  ]
+}

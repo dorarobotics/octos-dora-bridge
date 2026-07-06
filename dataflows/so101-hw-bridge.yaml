@@ -20,7 +20,7 @@ nodes:
     args: -m rebot_hw_node.node
     env:
       ROBOT_BACKEND: lerobot
-      ROBOT_MANIFEST: ./manifests/so101-hw.json
+      ROBOT_MANIFEST: ${REBOT_HW_NODE}/manifests/so101-hw.json
     inputs:
       joint_commands: trajectory_executor/joint_commands
       gripper_command: moveit_arm/gripper_command
@@ -54,12 +54,18 @@ nodes:
     env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.so101", IK_SOLVER_TYPE: "de" }
     inputs:
       ik_request: moveit_arm/ik_request
+      joint_state: rebot_hw/joint_positions
     outputs: [ik_solution, ik_status]
 
   - id: trajectory_executor
     path: ./venv-python
     args: ${DORA_MOVEIT2}/examples/move_group_demo/move_group_demo/nodes/trajectory_executor.py
-    env: { ROBOT_CONFIG_MODULE: "move_group_demo.config.so101" }
+    env:
+      ROBOT_CONFIG_MODULE: "move_group_demo.config.so101"
+      EXEC_HOLD_CORRECTION_GAIN: "1.0"
+      EXEC_HOLD_CORRECTION_MAX_RAD: "0.08"
+      EXEC_HOLD_CORRECTION_DEADBAND_RAD: "0.02"
+      EXEC_HOLD_CORRECTION_MASK: "0,1,1,1,0"
     inputs:
       trajectory: planner/trajectory
       cartesian_trajectory: moveit_arm/cartesian_trajectory

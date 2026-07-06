@@ -1,6 +1,6 @@
 # octos -> ADORA RGB pick hardware via dora-moveit2 + rebot_hw_node.
 #
-# This file is a template. `skills/Adora-RGB-pick/start_bridge.sh` resolves the
+# This file is a template. `scripts/start_bridge.sh` resolves the
 # placeholders below into `.adora-hw-run/adora-hw-bridge.yml` before calling
 # `dora start`, because dora does not interpolate shell variables in path:/args:.
 #

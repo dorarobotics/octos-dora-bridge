@@ -1,0 +1,1208 @@
+#!/home/dora/.octos/skills/skills/octos-dora-bridge/.adora-hw-run/venv-python
+from __future__ import annotations
+
+import json
+import os
+import socket
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+from contextlib import contextmanager
+from pathlib import Path
+
+import mujoco
+import numpy as np
+
+
+DEFAULT_BRIDGE_ROOT = Path("/home/dora/.octos/skills/skills/octos-dora-bridge")
+REPO_ROOT = Path(os.environ.get("OCTOS_DORA_BRIDGE", DEFAULT_BRIDGE_ROOT)).resolve()
+SKILL_DIR = Path(__file__).resolve().parent
+SKILLS_ROOT = REPO_ROOT.parent
+DEFAULT_MOVEIT_SKILL_PACK = SKILLS_ROOT / "moveit-arm-dora-node" / "skill_pack"
+DEFAULT_REBOT_MANIFEST = SKILLS_ROOT / "rebot-hw-dora-node" / "manifests" / "so101-hw.json"
+DEFAULT_DORA_MOVEIT2 = Path(os.environ.get("DORA_MOVEIT2", "/home/dora/so101-sim/dora-moveit2"))
+DEFAULT_SO101_MODEL = DEFAULT_DORA_MOVEIT2 / "examples" / "move_group_demo" / "models" / "so101_pickplace.xml"
+DEFAULT_TABLE_Z = 0.0
+DEFAULT_APPROACH_CLEARANCE_M = 0.08
+DEFAULT_BASE_X_OFFSET_M = 0.0
+DEFAULT_BASE_Y_OFFSET_M = 0.0
+DEFAULT_CUBE_HEIGHT_M = 0.03
+DEFAULT_GRASP_HEIGHT_RATIO = 0.35
+PROFILE_DIR_NAME = "profiles"
+DEFAULT_SO101_HOME = [
+    -0.11737818705720107,
+    -1.4660765716752369,
+    0.2961305895691478,
+    1.4185115546978089,
+    -0.02301533079552962,
+]
+SUPPORTED_DETECTORS = {"color_size", "prop_detector", "yolo_seg", "open3d_geometry"}
+SUPPORTED_GRASP_PLANNERS = {"geometry_topdown", "anygrasp"}
+DEFAULT_PICK_VIEWER_WINDOW = "SO101 pick monitor"
+DEFAULT_PICK_VIEWER_SAVE_PATH = "/tmp/octos_pick_view/last_overlay.png"
+
+sys.path.insert(0, str(REPO_ROOT / "bridge"))
+
+
+@contextmanager
+def redirect_native_stdout_to_stderr():
+    """Route native SDK stdout noise to stderr while keeping final JSON clean."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    saved_stdout = os.dup(1)
+    stderr_fd = os.dup(2)
+    try:
+        os.dup2(stderr_fd, 1)
+        yield
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(saved_stdout, 1)
+        os.close(saved_stdout)
+        os.close(stderr_fd)
+
+
+def emit(output, success):
+    print(json.dumps({"output": output if isinstance(output, str) else json.dumps(output), "success": bool(success)}))
+    raise SystemExit(0)
+
+
+def read_args():
+    raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+    args = json.loads(raw) if raw.strip() else {}
+    return resolve_profile_args(args)
+
+
+def profile_path(profile_name: str) -> Path:
+    name = str(profile_name).strip()
+    if not name or Path(name).name != name or name.endswith(".json"):
+        raise ValueError("profile must be a simple name without path separators or .json suffix")
+    return SKILL_DIR / PROFILE_DIR_NAME / f"{name}.json"
+
+
+def load_profile(profile_name: str) -> dict:
+    path = profile_path(profile_name)
+    if not path.exists():
+        raise ValueError(f"profile not found: {profile_name}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"profile must contain a JSON object: {profile_name}")
+    return data
+
+
+def resolve_profile_args(args: dict) -> dict:
+    args = dict(args or {})
+    profile_name = args.get("profile")
+    if not profile_name:
+        return args
+    profile = load_profile(str(profile_name))
+    resolved = dict(profile)
+    resolved.update(args)
+    return resolved
+
+
+def validate_detector(args):
+    detector = str(args.get("detector", "color_size"))
+    if detector not in SUPPORTED_DETECTORS:
+        raise ValueError(
+            f"unsupported detector: {detector}. Supported detectors: {', '.join(sorted(SUPPORTED_DETECTORS))}"
+        )
+    return detector
+
+
+def draw_pick_monitor_overlay(color_bgr, objects, *, stage, base_points=None, message=None):
+    import cv2
+
+    image = np.asarray(color_bgr).copy()
+    base_points = base_points or {}
+    header = f"SO101 pick monitor | {stage}"
+    if message:
+        header = f"{header} | {message}"
+    cv2.rectangle(image, (0, 0), (image.shape[1], 34), (20, 20, 20), -1)
+    cv2.putText(image, header, (10, 23), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+    cv2.putText(image, header, (10, 23), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (40, 220, 255), 1)
+
+    for index, obj in enumerate(objects or []):
+        x, y, w, h = [int(v) for v in obj.bbox]
+        color = (0, 180, 255) if obj.color == "orange" else (0, 255, 0)
+        cv2.rectangle(image, (x, y), (x + w, y + h), color, 2)
+        label = (
+            f"{index}: {obj.color or obj.category} "
+            f"{obj.distance_m:.3f}m "
+            f"{obj.estimated_size_m.width:.3f}x{obj.estimated_size_m.height:.3f}"
+        )
+        label_y = max(52, y - 7)
+        cv2.putText(image, label, (x, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 3)
+        cv2.putText(image, label, (x, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
+
+    y = image.shape[0] - 12
+    for name, point in reversed(list(base_points.items())):
+        text = f"{name}: base [{float(point[0]):.3f}, {float(point[1]):.3f}, {float(point[2]):.3f}]"
+        cv2.putText(image, text, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 3)
+        cv2.putText(image, text, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+        y -= 20
+        if y < 50:
+            break
+    return image
+
+
+class PickMonitor:
+    def __init__(self, args):
+        self.enabled = bool(args.get("show_viewer", False))
+        self.live_enabled = bool(args.get("viewer_live", False))
+        self.max_fps = float(args.get("viewer_max_fps", 6.0))
+        self.window_name = str(args.get("viewer_window") or DEFAULT_PICK_VIEWER_WINDOW)
+        self.save_path = Path(str(args.get("viewer_save_path") or DEFAULT_PICK_VIEWER_SAVE_PATH))
+        self.last_frame = None
+        self.last_objects = []
+        self.last_base_points = {}
+        self.last_stage = "idle"
+        self.last_message = None
+        self._cv2 = None
+        self._lock = threading.RLock()
+        self._stop_live = threading.Event()
+        self._live_thread = None
+        if self.enabled:
+            import cv2
+
+            self._cv2 = cv2
+            self.save_path.parent.mkdir(parents=True, exist_ok=True)
+            cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+
+    def _render_locked(self):
+        if not self.enabled or self.last_frame is None:
+            return
+        overlay = draw_pick_monitor_overlay(
+            self.last_frame,
+            self.last_objects,
+            stage=self.last_stage,
+            base_points=self.last_base_points,
+            message=self.last_message,
+        )
+        self._cv2.imshow(self.window_name, overlay)
+        self._cv2.imwrite(str(self.save_path), overlay)
+        self._cv2.waitKey(1)
+
+    def update(self, stage, *, frame=None, objects=None, base_points=None, message=None):
+        with self._lock:
+            self.last_stage = str(stage)
+            self.last_message = message
+            if frame is not None:
+                self.last_frame = frame.color_bgr if hasattr(frame, "color_bgr") else frame
+            if objects is not None:
+                self.last_objects = list(objects)
+            if base_points:
+                self.last_base_points.update(base_points)
+            self._render_locked()
+
+    def start_live(self, args):
+        if not self.enabled or not self.live_enabled:
+            return
+        if self._live_thread is not None and self._live_thread.is_alive():
+            return
+        live_args = dict(args)
+        self._stop_live.clear()
+        self._live_thread = threading.Thread(
+            target=self._live_loop,
+            args=(live_args,),
+            name="so101-pick-monitor-live",
+            daemon=True,
+        )
+        self._live_thread.start()
+
+    def stop_live(self):
+        thread = self._live_thread
+        if thread is None:
+            return
+        self._stop_live.set()
+        thread.join(timeout=2.0)
+        self._live_thread = None
+
+    def _live_loop(self, args):
+        interval = 1.0 / self.max_fps if self.max_fps > 0 else 0.0
+        while not self._stop_live.is_set():
+            started_at = time.monotonic()
+            try:
+                frame, objects = capture_frame_objects(args)
+                with self._lock:
+                    self.last_frame = frame.color_bgr if hasattr(frame, "color_bgr") else frame
+                    self.last_objects = list(objects)
+                    self.last_message = f"live objects={len(objects)}"
+                    self._render_locked()
+            except Exception as exc:
+                with self._lock:
+                    self.last_message = f"live error: {exc}"
+                    self._render_locked()
+                self._stop_live.wait(0.5)
+            if interval > 0:
+                elapsed = time.monotonic() - started_at
+                self._stop_live.wait(max(0.0, interval - elapsed))
+
+    def close(self):
+        self.stop_live()
+        if self.enabled and self._cv2 is not None:
+            try:
+                self._cv2.destroyWindow(self.window_name)
+            except Exception:
+                pass
+
+
+def maybe_pick_monitor(args):
+    return PickMonitor(args) if bool(args.get("show_viewer", False)) else None
+
+
+def yolo_class_names(args):
+    value = args.get("yolo_classes")
+    if value is None:
+        value = os.environ.get("YOLO_CLASSES")
+    if isinstance(value, str):
+        names = [item.strip() for item in value.split(",")]
+    elif isinstance(value, list):
+        names = [str(item).strip() for item in value]
+    else:
+        names = []
+    return [name for name in names if name]
+
+
+def open3d_workspace_bounds(args):
+    value = args.get("workspace_bounds_m") or args.get("open3d_workspace_bounds_m")
+    if value is None:
+        raw = os.environ.get("OPEN3D_WORKSPACE_BOUNDS_M")
+        if raw:
+            value = json.loads(raw)
+    return value
+
+
+def open3d_image_roi_fraction(args):
+    value = args.get("image_roi_fraction") or args.get("open3d_image_roi_fraction")
+    if value is None:
+        raw = os.environ.get("OPEN3D_IMAGE_ROI_FRACTION")
+        if raw:
+            value = json.loads(raw)
+    return value
+
+
+def create_object_detector(args):
+    from octos_object_perception.detectors import ColorSizeDetector, Open3DGeometryDetector, PropDetector, YoloSegDetector
+
+    detector_name = validate_detector(args)
+    if detector_name == "open3d_geometry":
+        return Open3DGeometryDetector(
+            workspace_bounds_m=open3d_workspace_bounds(args),
+            image_roi_fraction=open3d_image_roi_fraction(args),
+            voxel_size_m=float(args.get("open3d_voxel_size_m", os.environ.get("OPEN3D_VOXEL_SIZE_M", 0.005))),
+            table_distance_threshold_m=float(
+                args.get("open3d_table_threshold_m", os.environ.get("OPEN3D_TABLE_THRESHOLD_M", 0.01))
+            ),
+            dbscan_eps_m=float(args.get("open3d_dbscan_eps_m", os.environ.get("OPEN3D_DBSCAN_EPS_M", 0.025))),
+            dbscan_min_points=int(
+                args.get("open3d_dbscan_min_points", os.environ.get("OPEN3D_DBSCAN_MIN_POINTS", 30))
+            ),
+            min_cluster_points=int(
+                args.get("open3d_min_cluster_points", os.environ.get("OPEN3D_MIN_CLUSTER_POINTS", 80))
+            ),
+        )
+    if detector_name in {"prop_detector", "yolo_seg"}:
+        detector = YoloSegDetector(
+            model_path=args.get("yolo_model_path") or os.environ.get("YOLO_MODEL_PATH"),
+            class_names=yolo_class_names(args),
+            confidence=float(args.get("yolo_confidence", os.environ.get("YOLO_CONFIDENCE", 0.25))),
+            device=args.get("yolo_device") or os.environ.get("YOLO_DEVICE", "cpu"),
+        )
+        if detector_name == "prop_detector":
+            return PropDetector(base_detector=detector)
+        return detector
+    return ColorSizeDetector(min_area_px=int(args.get("min_area_px", 120)))
+
+
+def validate_grasp_planner(args):
+    planner = str(args.get("grasp_planner", "geometry_topdown"))
+    if planner not in SUPPORTED_GRASP_PLANNERS:
+        raise ValueError(
+            f"unsupported grasp_planner: {planner}. Supported planners: {', '.join(sorted(SUPPORTED_GRASP_PLANNERS))}"
+        )
+    return planner
+
+
+def configure_so101_runtime():
+    skill_pack = os.environ.get("SO101_MOVEIT_SKILL_PACK", str(DEFAULT_MOVEIT_SKILL_PACK))
+    os.environ["SKILL_PACK"] = skill_pack
+    os.environ.setdefault("OCTOS_ROBOT", "so101")
+    os.environ.setdefault("ARM_BRIDGE_URL", "http://127.0.0.1:8768")
+    os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
+    os.environ.setdefault("no_proxy", "127.0.0.1,localhost")
+    os.environ.setdefault("MODEL_NAME", str(DEFAULT_SO101_MODEL))
+    os.environ.setdefault("ROBOT_MANIFEST", str(DEFAULT_REBOT_MANIFEST))
+    sys.path.insert(0, skill_pack)
+    return Path(skill_pack)
+
+
+def rpy_to_rot(rpy):
+    roll, pitch, yaw = [float(v) for v in rpy]
+    cr, sr = np.cos(roll), np.sin(roll)
+    cp, sp = np.cos(pitch), np.sin(pitch)
+    cy, sy = np.cos(yaw), np.sin(yaw)
+    return np.array([
+        [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+        [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+        [-sp, cp * sr, cp * cr],
+    ])
+
+
+def project_camera_point_to_base_plane(point_camera, t_base_to_cam, plane_z: float):
+    point_camera = np.asarray(point_camera, dtype=float).reshape(3)
+    t_base_to_cam = np.asarray(t_base_to_cam, dtype=float)
+    if t_base_to_cam.shape != (4, 4):
+        raise ValueError("t_base_to_cam must be a 4x4 transform")
+    origin = t_base_to_cam[:3, 3]
+    ray = t_base_to_cam[:3, :3] @ point_camera
+    if abs(float(ray[2])) < 1e-9:
+        raise ValueError("camera ray is parallel to target plane")
+    scale = (float(plane_z) - float(origin[2])) / float(ray[2])
+    point_base = origin + scale * ray
+    return [round(float(v), 6) for v in point_base]
+
+
+def build_grasp_points(table_point, object_height_m: float, approach_clearance_m: float):
+    x, y, z = [float(v) for v in table_point]
+    height = max(0.0, float(object_height_m))
+    grasp_z = z + height * 0.5
+    approach_z = grasp_z + float(approach_clearance_m)
+    return {
+        "point_base": [round(x, 6), round(y, 6), round(grasp_z, 6)],
+        "point_base_table": [round(x, 6), round(y, 6), round(z, 6)],
+        "approach_point_base": [round(x, 6), round(y, 6), round(approach_z, 6)],
+    }
+
+
+def apply_base_xy_offset(table_point, x_offset_m: float, y_offset_m: float):
+    x, y, z = [float(v) for v in table_point]
+    return [
+        round(x + float(x_offset_m), 6),
+        round(y + float(y_offset_m), 6),
+        round(z, 6),
+    ]
+
+
+_MODEL = None
+_DATA = None
+
+
+def parse_vector3(value, *, name: str):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = json.loads(value)
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError(f"{name} must be a 3-element vector")
+    return [float(v) for v in value]
+
+
+def parse_vector5(value, *, name: str):
+    if isinstance(value, str):
+        value = json.loads(value)
+    if not isinstance(value, (list, tuple)) or len(value) != 5:
+        raise ValueError(f"{name} must be a 5-element joint vector")
+    return [float(v) for v in value]
+
+
+def tcp_offset_from_args(args: dict):
+    return parse_vector3(
+        args.get("tcp_offset_in_gripper_m", os.environ.get("SO101_TCP_OFFSET_IN_GRIPPER_M")),
+        name="tcp_offset_in_gripper_m",
+    )
+
+
+def forward_kinematics(joints, *, with_gripper=False, tcp_offset_in_gripper_m=None):
+    global _MODEL, _DATA
+    if _MODEL is None:
+        _MODEL = mujoco.MjModel.from_xml_path(os.environ["MODEL_NAME"])
+        _DATA = mujoco.MjData(_MODEL)
+    assert _DATA is not None
+
+    q = np.array([float(v) for v in joints[:5]], dtype=float)
+    arm_qpos = slice(7, 12) if _MODEL.nq >= 12 else slice(0, 5)
+    _DATA.qpos[:] = 0
+    _DATA.qpos[arm_qpos] = q
+    mujoco.mj_forward(_MODEL, _DATA)
+
+    tcp_offset = parse_vector3(tcp_offset_in_gripper_m, name="tcp_offset_in_gripper_m")
+    if tcp_offset is not None:
+        body_id = mujoco.mj_name2id(_MODEL, mujoco.mjtObj.mjOBJ_BODY, "gripper")
+        body_pos = _DATA.xpos[body_id].copy()
+        rot = _DATA.xmat[body_id].reshape(3, 3).copy()
+        pos = body_pos + rot @ np.asarray(tcp_offset, dtype=float)
+    elif with_gripper:
+        site_id = mujoco.mj_name2id(_MODEL, mujoco.mjtObj.mjOBJ_SITE, "pinch")
+        pos = _DATA.site_xpos[site_id].copy()
+        rot = _DATA.site_xmat[site_id].reshape(3, 3).copy()
+    else:
+        body_id = mujoco.mj_name2id(_MODEL, mujoco.mjtObj.mjOBJ_BODY, "gripper")
+        pos = _DATA.xpos[body_id].copy()
+        rot = _DATA.xmat[body_id].reshape(3, 3).copy()
+
+    transform = np.eye(4)
+    transform[:3, :3] = rot
+    transform[:3, 3] = pos
+    return {"position": tuple(float(v) for v in pos), "rotation": rot, "transform": transform}
+
+
+def solve_pinch_ik_for_base_point(
+    point_base,
+    *,
+    seed=None,
+    table_z: float = DEFAULT_TABLE_Z,
+    iters: int = 300,
+    tcp_offset_in_gripper_m=None,
+):
+    """Solve SO101 joints so Mujoco's pinch site reaches a real base-frame point.
+
+    The SO101 Mujoco pickplace model uses table Z ~= 0. This real setup also uses
+    table_z ~= 0 after mounting the arm directly to the table. X/Y are kept in base
+    coordinates and Z is shifted into the model's table-relative frame when a
+    different table_z is explicitly supplied.
+    """
+    global _MODEL, _DATA
+    if _MODEL is None:
+        _MODEL = mujoco.MjModel.from_xml_path(os.environ["MODEL_NAME"])
+        _DATA = mujoco.MjData(_MODEL)
+    assert _DATA is not None
+
+    x, y, z = [float(v) for v in point_base]
+    target = np.array([x, y, z - float(table_z)], dtype=float)
+    q = np.array([float(v) for v in (seed if seed is not None else DEFAULT_SO101_HOME)], dtype=float)
+    if q.shape[0] != 5:
+        raise ValueError("SO101 pinch IK seed must contain 5 joints")
+
+    arm_qpos = slice(7, 12) if _MODEL.nq >= 12 else slice(0, 5)
+    arm_qvel = slice(6, 11) if _MODEL.nv >= 11 else slice(0, 5)
+    joint_range_start = 1 if _MODEL.jnt_range.shape[0] >= 6 else 0
+    lo = _MODEL.jnt_range[joint_range_start:joint_range_start + 5, 0]
+    hi = _MODEL.jnt_range[joint_range_start:joint_range_start + 5, 1]
+    site_id = mujoco.mj_name2id(_MODEL, mujoco.mjtObj.mjOBJ_SITE, "pinch")
+    jacp = np.zeros((3, _MODEL.nv))
+    jacr = np.zeros((3, _MODEL.nv))
+    tcp_offset = parse_vector3(tcp_offset_in_gripper_m, name="tcp_offset_in_gripper_m")
+
+    def set_arm(q_values):
+        _DATA.qpos[:] = 0
+        _DATA.qpos[arm_qpos] = q_values
+        mujoco.mj_forward(_MODEL, _DATA)
+
+    def tcp_position(q_values):
+        set_arm(q_values)
+        if tcp_offset is None:
+            return _DATA.site_xpos[site_id].copy()
+        body_id = mujoco.mj_name2id(_MODEL, mujoco.mjtObj.mjOBJ_BODY, "gripper")
+        body_pos = _DATA.xpos[body_id].copy()
+        rot = _DATA.xmat[body_id].reshape(3, 3).copy()
+        return body_pos + rot @ np.asarray(tcp_offset, dtype=float)
+
+    def numerical_tcp_jacobian(q_values):
+        eps = 1e-5
+        base = tcp_position(q_values)
+        jac = np.zeros((3, 5), dtype=float)
+        for index in range(5):
+            stepped = np.array(q_values, dtype=float)
+            stepped[index] += eps
+            jac[:, index] = (tcp_position(stepped) - base) / eps
+        set_arm(q_values)
+        return jac
+
+    for _ in range(int(iters)):
+        current = tcp_position(q)
+        err = target - current
+        if np.linalg.norm(err) < 1e-3:
+            break
+        if tcp_offset is None:
+            mujoco.mj_jacSite(_MODEL, _DATA, jacp, jacr, site_id)
+            j = jacp[:, arm_qvel]
+        else:
+            j = numerical_tcp_jacobian(q)
+        dq = j.T @ np.linalg.solve(j @ j.T + 1e-4 * np.eye(3), err)
+        q = np.clip(q + dq, lo, hi)
+
+    return [float(v) for v in q]
+
+
+def capture_frame_objects(args):
+    from octos_camera.orbbec_gemini335 import Gemini335Camera
+    from octos_object_perception.depth_geometry import CameraIntrinsics
+    from octos_object_perception.pipeline import ObjectPerceptionPipeline
+    from octos_object_perception.types import TargetSpec
+
+    cam = Gemini335Camera(serial_number=os.environ.get("ORBBEC_SN"))
+    with redirect_native_stdout_to_stderr():
+        try:
+            frame = cam.read()
+            target = TargetSpec.from_mapping(args)
+            pipeline = ObjectPerceptionPipeline(create_object_detector(args))
+            objects = pipeline.detect(
+                color_bgr=frame.color_bgr,
+                depth_m=frame.depth_m,
+                intrinsics=CameraIntrinsics(
+                    fx=frame.intrinsics.fx,
+                    fy=frame.intrinsics.fy,
+                    cx=frame.intrinsics.cx,
+                    cy=frame.intrinsics.cy,
+                    width=frame.intrinsics.width,
+                    height=frame.intrinsics.height,
+                ),
+                target=target,
+            )
+            return frame, objects
+        finally:
+            cam.close()
+
+
+def capture_objects(args):
+    _, objects = capture_frame_objects(args)
+    return objects
+
+
+def _capture_frame_detections(args):
+    from octos_camera.orbbec_gemini335 import Gemini335Camera
+    from octos_object_perception.depth_geometry import CameraIntrinsics
+    from octos_object_perception.pipeline import ObjectPerceptionPipeline
+    from octos_object_perception.types import TargetSpec
+
+    cam = Gemini335Camera(serial_number=os.environ.get("ORBBEC_SN"))
+    with redirect_native_stdout_to_stderr():
+        try:
+            frame = cam.read()
+            target = TargetSpec.from_mapping(args)
+            intrinsics = CameraIntrinsics(
+                fx=frame.intrinsics.fx,
+                fy=frame.intrinsics.fy,
+                cx=frame.intrinsics.cx,
+                cy=frame.intrinsics.cy,
+                width=frame.intrinsics.width,
+                height=frame.intrinsics.height,
+            )
+            detector = create_object_detector(args)
+            if hasattr(detector, "detect"):
+                detections = detector.detect(frame.color_bgr, target)
+            else:
+                detections = []
+            objects = ObjectPerceptionPipeline(detector).detect(
+                color_bgr=frame.color_bgr,
+                depth_m=frame.depth_m,
+                intrinsics=intrinsics,
+                target=target,
+            )
+            return frame, intrinsics, target, detections, objects
+        finally:
+            cam.close()
+
+
+def _best_detection_for_object(detections, obj):
+    for detection in detections:
+        if detection.bbox == obj.bbox and detection.category == obj.category and detection.color == obj.color:
+            return detection
+    for detection in detections:
+        if detection.bbox == obj.bbox:
+            return detection
+    raise RuntimeError("Best object detection mask is unavailable for grasp planning")
+
+
+def _grasp_candidate_to_dict(candidate):
+    return {
+        "position_camera": list(candidate.position_camera),
+        "rotation_camera": [list(row) for row in candidate.rotation_camera],
+        "width_m": candidate.width_m,
+        "score": candidate.score,
+        "source": candidate.source,
+    }
+
+
+def _anygrasp_config_from_args(args):
+    from octos_grasp_planning.anygrasp_adapter import AnyGraspConfig
+
+    return AnyGraspConfig(
+        checkpoint_path=args.get("anygrasp_checkpoint_path") or os.environ.get("ANYGRASP_CHECKPOINT_PATH"),
+        max_gripper_width=float(args.get("max_gripper_width", 0.08)),
+        gripper_height=float(args.get("gripper_height", 0.03)),
+        top_down_grasp=bool(args.get("top_down_grasp", False)),
+        debug=bool(args.get("debug", False)),
+        apply_object_mask=bool(args.get("apply_object_mask", True)),
+        dense_grasp=bool(args.get("dense_grasp", False)),
+        collision_detection=bool(args.get("collision_detection", True)),
+        bbox_margin_px=int(args.get("bbox_margin_px", 8)),
+        num_candidates=int(args.get("num_candidates", 20)),
+    )
+
+
+def plan_grasp_camera(args):
+    planner = validate_grasp_planner(args)
+    frame, intrinsics, target, detections, objects = _capture_frame_detections(args)
+    if not objects:
+        raise RuntimeError("No matching object found")
+    best = objects[0]
+
+    if planner == "geometry_topdown":
+        from octos_grasp_planning.geometry_topdown import plan_topdown_grasp
+
+        candidate = plan_topdown_grasp(
+            best,
+            table_z_camera=args.get("table_z_camera"),
+            table_clearance_m=float(args.get("table_clearance_m", 0.04)),
+            width_margin_m=float(args.get("width_margin_m", 0.005)),
+            top_bias_m=float(args.get("top_bias_m", 0.006)),
+        )
+    elif planner == "anygrasp":
+        from octos_grasp_planning.anygrasp_adapter import plan_anygrasp
+
+        candidate = plan_anygrasp(
+            color_bgr=frame.color_bgr,
+            depth_m=frame.depth_m,
+            intrinsics=intrinsics,
+            detection=_best_detection_for_object(detections, best),
+            target=target,
+            config=_anygrasp_config_from_args(args),
+        )
+    else:
+        raise ValueError(f"unsupported grasp_planner: {planner}")
+
+    return {
+        "target": best.to_dict(),
+        "grasp": _grasp_candidate_to_dict(candidate),
+        "planner": planner,
+    }
+
+
+def diagnose_perception(args):
+    from octos_camera.orbbec_gemini335 import Gemini335Camera
+    from octos_object_perception.depth_geometry import CameraIntrinsics
+    from octos_object_perception.pipeline import ObjectPerceptionPipeline
+    from octos_object_perception.diagnostics import diagnose_color_size_frame, diagnose_detector_frame
+    from octos_object_perception.types import TargetSpec
+
+    detector_name = validate_detector(args)
+    cam = Gemini335Camera(serial_number=os.environ.get("ORBBEC_SN"))
+    with redirect_native_stdout_to_stderr():
+        try:
+            frame = cam.read()
+            intrinsics = CameraIntrinsics(
+                fx=frame.intrinsics.fx,
+                fy=frame.intrinsics.fy,
+                cx=frame.intrinsics.cx,
+                cy=frame.intrinsics.cy,
+                width=frame.intrinsics.width,
+                height=frame.intrinsics.height,
+            )
+            target = TargetSpec.from_mapping(args)
+            if detector_name == "color_size":
+                return diagnose_color_size_frame(
+                    color_bgr=frame.color_bgr,
+                    depth_m=frame.depth_m,
+                    intrinsics=intrinsics,
+                    target=target,
+                    min_area_px=int(args.get("min_area_px", 120)),
+                )
+            detector = create_object_detector(args)
+            if not hasattr(detector, "detect"):
+                objects = ObjectPerceptionPipeline(detector).detect(
+                    color_bgr=frame.color_bgr,
+                    depth_m=frame.depth_m,
+                    intrinsics=intrinsics,
+                    target=target,
+                )
+                return {
+                    "target": {"category": target.category, "color": target.color},
+                    "summary": {
+                        "open3d_geometry": {
+                            "detections_3d": len(objects),
+                            "matches": len(objects),
+                            "rejected": 0,
+                        }
+                    },
+                    "matches": [obj.to_dict() for obj in objects],
+                    "rejected": [],
+                }
+            return diagnose_detector_frame(
+                detector=detector,
+                color_bgr=frame.color_bgr,
+                depth_m=frame.depth_m,
+                intrinsics=intrinsics,
+                target=target,
+            )
+        finally:
+            cam.close()
+
+
+def hand_eye_path(skill_pack: Path) -> Path:
+    candidates = [
+        os.environ.get("SO101_DEPTH_HAND_EYE"),
+        str(SKILL_DIR / "calibration" / "hand_eye.json"),
+        str(skill_pack / "calibration" / "hand_eye.json"),
+    ]
+    for path in candidates:
+        if path and Path(path).is_file():
+            return Path(path)
+    raise RuntimeError("No hand-eye calibration found. Set SO101_DEPTH_HAND_EYE or run calibration first.")
+
+
+def current_joint_positions():
+    try:
+        data = json.dumps({"args": {}}).encode()
+        req = urllib.request.Request(
+            os.environ["ARM_BRIDGE_URL"] + "/tools/get_state",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            payload = json.loads(resp.read().decode())
+        joints = payload.get("data", {}).get("stream", {}).get("joint_positions")
+        if isinstance(joints, list) and len(joints) >= 5:
+            return [float(v) for v in joints[:5]], "bridge_state"
+    except Exception:
+        pass
+    raise RuntimeError("No live SO101 joint state available from bridge")
+
+
+def bridge_tool(name: str, args: dict, timeout: float = 30.0):
+    data = json.dumps({"args": args}).encode()
+    req = urllib.request.Request(
+        os.environ["ARM_BRIDGE_URL"] + f"/tools/{name}",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        payload = json.loads(resp.read().decode())
+    if not payload.get("ok", False):
+        raise RuntimeError(payload.get("msg") or f"{name} failed")
+    return payload.get("data")
+
+
+def wait_for_arm_settle(
+    *,
+    max_wait_s: float = 8.0,
+    sample_s: float = 0.12,
+    stable_s: float = 0.36,
+    joint_delta_rad: float = 0.003,
+):
+    time.sleep(float(os.environ.get("SO101_MOVE_INITIAL_SETTLE_S", "0.2")))
+    deadline = time.monotonic() + max_wait_s
+    last, _ = current_joint_positions()
+    stable_for = 0.0
+    while time.monotonic() < deadline:
+        time.sleep(sample_s)
+        current, _ = current_joint_positions()
+        delta = max(abs(a - b) for a, b in zip(current, last))
+        if delta <= joint_delta_rad:
+            stable_for += sample_s
+            if stable_for >= stable_s:
+                return
+        else:
+            stable_for = 0.0
+        last = current
+
+
+def move_to_pose(position, timeout: float = 45.0):
+    result = bridge_tool(
+        "vendor.moveit.arm.move_to_pose",
+        {
+            "pose": {"position": [float(v) for v in position], "orientation": [1, 0, 0, 0]},
+            "control_source": "octos",
+        },
+        timeout=timeout,
+    )
+    wait_for_arm_settle()
+    return result
+
+
+def move_to_joint_state(joints, timeout: float = 45.0):
+    target = [float(v) for v in joints]
+    try:
+        result = bridge_tool(
+            "vendor.moveit.arm.move_to_joint_state",
+            {"joints": target, "control_source": "octos"},
+            timeout=timeout,
+        )
+    except (TimeoutError, socket.timeout, urllib.error.URLError) as exc:
+        actual, _ = current_joint_positions()
+        max_error = max(abs(a - b) for a, b in zip(actual[:5], target))
+        if max_error > float(os.environ.get("SO101_MOVE_TIMEOUT_JOINT_TOLERANCE_RAD", "0.01")):
+            raise
+        result = {
+            "timeout_recovered": True,
+            "max_joint_error_rad": round(float(max_error), 6),
+            "timeout_error": str(exc),
+        }
+        try:
+            bridge_tool("robot.release_control", {"control_source": "octos"}, timeout=5.0)
+        except Exception:
+            pass
+    wait_for_arm_settle()
+    return result
+
+
+def move_to_named_pose(name: str, timeout: float = 45.0):
+    result = bridge_tool(
+        "vendor.moveit.arm.move_to_named",
+        {"name": str(name), "control_source": "octos"},
+        timeout=timeout,
+    )
+    wait_for_arm_settle()
+    return result
+
+
+def prepare_perception_pose(args: dict):
+    if not bool(args.get("move_to_perception_pose", False)):
+        return None
+    joint_state = args.get("perception_joint_state")
+    if joint_state is not None:
+        joints = parse_vector5(joint_state, name="perception_joint_state")
+        return move_to_joint_state(joints, timeout=float(args.get("perception_pose_timeout_s", 45.0)))
+    pose_name = str(args.get("perception_pose_name") or "").strip()
+    if not pose_name:
+        raise ValueError(
+            "perception_pose_name or perception_joint_state is required when move_to_perception_pose is true"
+        )
+    return move_to_named_pose(pose_name, timeout=float(args.get("perception_pose_timeout_s", 45.0)))
+
+
+def move_pinch_to_base_point(args):
+    for key in ("x", "y", "z"):
+        if key not in args:
+            raise ValueError(f"move_pinch_to_base_point needs numeric {key}")
+    point = [float(args["x"]), float(args["y"]), float(args["z"])]
+    seed_source = str(args.get("seed", "current"))
+    if seed_source == "home":
+        seed = DEFAULT_SO101_HOME
+        state_source = "home"
+    else:
+        seed, state_source = current_joint_positions()
+    table_z = float(args.get("table_z", os.environ.get("SO101_TABLE_Z", DEFAULT_TABLE_Z)))
+    tcp_offset = tcp_offset_from_args(args)
+    joints = solve_pinch_ik_for_base_point(
+        point,
+        seed=seed,
+        table_z=table_z,
+        iters=int(args.get("iters", 300)),
+        tcp_offset_in_gripper_m=tcp_offset,
+    )
+    move_to_joint_state(joints, timeout=float(args.get("timeout_s", 45.0)))
+    commanded_fk = forward_kinematics(joints, with_gripper=True, tcp_offset_in_gripper_m=tcp_offset)
+    actual_joints, actual_source = current_joint_positions()
+    actual_fk = forward_kinematics(actual_joints, with_gripper=True, tcp_offset_in_gripper_m=tcp_offset)
+    actual_error = np.asarray(actual_fk["position"], dtype=float) - np.asarray(point, dtype=float)
+    return {
+        "point_base": [round(float(v), 6) for v in point],
+        "table_z": table_z,
+        "model_target": [round(point[0], 6), round(point[1], 6), round(point[2] - table_z, 6)],
+        "joints": [round(float(v), 6) for v in joints],
+        "commanded_joints": [round(float(v), 6) for v in joints],
+        "actual_joints": [round(float(v), 6) for v in actual_joints],
+        "seed_source": state_source,
+        "actual_state_source": actual_source,
+        "tcp_offset_in_gripper_m": None if tcp_offset is None else [round(float(v), 6) for v in tcp_offset],
+        "pinch_fk_model": [round(float(v), 6) for v in commanded_fk["position"]],
+        "commanded_pinch_fk": [round(float(v), 6) for v in commanded_fk["position"]],
+        "actual_pinch_fk": [round(float(v), 6) for v in actual_fk["position"]],
+        "actual_error_m": [round(float(v), 6) for v in actual_error],
+        "actual_error_norm_m": round(float(np.linalg.norm(actual_error)), 6),
+    }
+
+
+def set_gripper_width(width: float):
+    return bridge_tool("vendor.moveit.arm.gripper.set", {"width": float(width)}, timeout=10.0)
+
+
+def safe_grasp_z(located: dict, args: dict):
+    validate_grasp_planner(args)
+    table_z = float(located.get("table_z", DEFAULT_TABLE_Z))
+    detected_height = located.get("estimated_size_m", {}).get("height", 0.035)
+    default_height = DEFAULT_CUBE_HEIGHT_M if located.get("category") == "cube" else detected_height
+    height = float(args.get("object_height_m", default_height))
+    ratio = min(max(float(args.get("grasp_height_ratio", DEFAULT_GRASP_HEIGHT_RATIO)), 0.0), 1.0)
+    min_clearance = max(0.0, float(args.get("min_grasp_clearance_m", 0.008)))
+    grasp_z = table_z + max(height * ratio, min_clearance)
+    return round(grasp_z, 6)
+
+
+def pick_yellow_to_black_box(args):
+    planner = validate_grasp_planner(args)
+    monitor = maybe_pick_monitor(args)
+    if planner == "anygrasp":
+        planned = plan_grasp_camera(args)
+        raise RuntimeError(
+            "AnyGrasp camera-frame planning succeeded, but SO101 execution of arbitrary 6D "
+            f"AnyGrasp candidates is not enabled yet. Use grasp_planner='geometry_topdown' "
+            f"for motion. Planned grasp: {json.dumps(planned['grasp'])}"
+        )
+
+    try:
+        target_args = {
+            "category": "cube",
+            "detector": args.get("detector", "color_size"),
+            "color": args.get("color", "yellow"),
+            "size_range_m": args.get(
+                "size_range_m",
+                {"min_width": 0.015, "max_width": 0.060, "min_height": 0.015, "max_height": 0.060},
+            ),
+            "approach_clearance_m": float(args.get("approach_clearance_m", 0.10)),
+        }
+        for key in ("move_to_perception_pose", "perception_pose_name", "perception_pose_timeout_s"):
+            if key in args:
+                target_args[key] = args[key]
+        cube = locate_base_for_stage(target_args, monitor, f"detect {target_args['color']} cube")
+        if monitor is not None:
+            monitor.start_live(target_args)
+        x, y, _ = [float(v) for v in cube["point_base"]]
+        grasp_z = safe_grasp_z(cube, args)
+        pre_z = max(grasp_z + 0.07, float(args.get("pregrasp_z", -0.02)))
+        high_z = float(args.get("high_z", 0.08))
+        lift_z = float(args.get("lift_z", 0.07))
+
+        monitor.update("open gripper", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
+        set_gripper_width(float(args.get("open_width", 0.06)))
+        monitor.update("move above grasp", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
+        move_to_pose([x, y, high_z])
+        monitor.update("move to pregrasp", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
+        move_to_pose([x, y, pre_z])
+        monitor.update("move to grasp", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
+        move_to_pose([x, y, grasp_z])
+        monitor.update("close gripper", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
+        set_gripper_width(float(args.get("closed_width", 0.0)))
+        monitor.update("lift object", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
+        move_to_pose([x, y, lift_z])
+
+        box_args = {
+            "category": "cube",
+            "detector": args.get("detector", "color_size"),
+            "color": args.get("box_color", "black"),
+            "approach_clearance_m": float(args.get("approach_clearance_m", 0.10)),
+        }
+        for key in ("move_to_perception_pose", "perception_pose_name", "perception_pose_timeout_s"):
+            if key in args:
+                box_args[key] = args[key]
+        if monitor is not None:
+            monitor.stop_live()
+        box = locate_base_for_stage(box_args, monitor, f"detect {box_args['color']} box")
+        if monitor is not None:
+            monitor.start_live(box_args)
+        bx, by, _ = [float(v) for v in box["point_base"]]
+        place_above_z = float(args.get("place_above_z", 0.08))
+        place_z = float(args.get("place_z", -0.03))
+        retract_z = float(args.get("retract_z", 0.08))
+
+        monitor.update("move above place", base_points={"place": [bx, by, place_z]}) if monitor else None
+        move_to_pose([bx, by, place_above_z])
+        monitor.update("move to place", base_points={"place": [bx, by, place_z]}) if monitor else None
+        move_to_pose([bx, by, place_z])
+        monitor.update("release object", base_points={"place": [bx, by, place_z]}) if monitor else None
+        set_gripper_width(float(args.get("release_width", 0.06)))
+        monitor.update("retract", base_points={"place": [bx, by, place_z]}) if monitor else None
+        move_to_pose([bx, by, retract_z])
+        monitor.update("done", base_points={"place": [bx, by, place_z]}) if monitor else None
+
+        return {
+            "picked": cube,
+            "dropoff": box,
+            "motion": {
+                "grasp_xyz": [round(x, 6), round(y, 6), round(grasp_z, 6)],
+                "dropoff_xyz": [round(bx, 6), round(by, 6), round(place_z, 6)],
+                "retract_xyz": [round(bx, 6), round(by, 6), round(retract_z, 6)],
+            },
+        }
+    finally:
+        if monitor is not None:
+            monitor.close()
+
+
+def grasp_object(args):
+    validate_grasp_planner(args)
+    monitor = maybe_pick_monitor(args)
+    try:
+        located = locate_base_for_stage(args, monitor, f"detect {args.get('color') or 'object'}")
+        if monitor is not None:
+            monitor.start_live(args)
+        x, y, _ = [float(v) for v in located["point_base"]]
+        grasp_z = safe_grasp_z(located, args)
+        pre_z = max(grasp_z + 0.07, float(args.get("pregrasp_z", -0.02)))
+        high_z = float(args.get("high_z", 0.08))
+        lift_z = float(args.get("lift_z", 0.07))
+
+        monitor.update("open gripper", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
+        set_gripper_width(float(args.get("open_width", 0.06)))
+        monitor.update("move above grasp", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
+        move_to_pose([x, y, high_z])
+        monitor.update("move to pregrasp", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
+        move_to_pose([x, y, pre_z])
+        monitor.update("move to grasp", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
+        move_to_pose([x, y, grasp_z])
+        monitor.update("close gripper", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
+        set_gripper_width(float(args.get("closed_width", 0.0)))
+        monitor.update("lift object", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
+        move_to_pose([x, y, lift_z])
+        monitor.update("done", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
+
+        return {
+            "grasped": True,
+            "target_base": [round(x, 6), round(y, 6), round(grasp_z, 6)],
+            "perception": located,
+            "motion": {
+                "grasp_xyz": [round(x, 6), round(y, 6), round(grasp_z, 6)],
+                "pregrasp_xyz": [round(x, 6), round(y, 6), round(pre_z, 6)],
+                "lift_xyz": [round(x, 6), round(y, 6), round(lift_z, 6)],
+            },
+        }
+    finally:
+        if monitor is not None:
+            monitor.close()
+
+
+def _object_to_base_data(best, args):
+    skill_pack = configure_so101_runtime()
+    with hand_eye_path(skill_pack).open() as fh:
+        calib = json.load(fh)
+    if "T_cam_in_wrist" not in calib:
+        raise RuntimeError("hand_eye.json missing T_cam_in_wrist")
+    rpy = calib["T_cam_in_wrist"]["rpy"]
+    trans = calib["T_cam_in_wrist"]["translation"]
+
+    t_cam_in_wrist = np.eye(4)
+    t_cam_in_wrist[:3, :3] = rpy_to_rot(rpy)
+    t_cam_in_wrist[:3, 3] = trans
+
+    joints, state_source = current_joint_positions()
+    fk = forward_kinematics(joints, with_gripper=False)
+    t_base_to_cam = fk["transform"] @ t_cam_in_wrist
+    point_camera = np.array([*best.point_camera, 1.0])
+    point_base_raw = t_base_to_cam @ point_camera
+    table_z = float(args.get("table_z", os.environ.get("SO101_TABLE_Z", DEFAULT_TABLE_Z)))
+    approach_clearance_m = float(args.get(
+        "approach_clearance_m",
+        os.environ.get("SO101_APPROACH_CLEARANCE_M", DEFAULT_APPROACH_CLEARANCE_M),
+    ))
+    point_base_table = project_camera_point_to_base_plane(
+        best.point_camera,
+        t_base_to_cam,
+        table_z,
+    )
+    base_x_offset_m = float(args.get(
+        "base_x_offset_m",
+        os.environ.get("SO101_BASE_X_OFFSET_M", DEFAULT_BASE_X_OFFSET_M),
+    ))
+    base_y_offset_m = float(args.get(
+        "base_y_offset_m",
+        os.environ.get("SO101_BASE_Y_OFFSET_M", DEFAULT_BASE_Y_OFFSET_M),
+    ))
+    point_base_table_uncorrected = point_base_table
+    point_base_table = apply_base_xy_offset(
+        point_base_table_uncorrected,
+        base_x_offset_m,
+        base_y_offset_m,
+    )
+    detected_height = best.estimated_size_m.height
+    default_height = DEFAULT_CUBE_HEIGHT_M if best.category == "cube" else detected_height
+    object_height_m = float(args.get(
+        "object_height_m",
+        os.environ.get("SO101_OBJECT_HEIGHT_M", default_height),
+    ))
+    grasp_points = build_grasp_points(
+        point_base_table,
+        object_height_m,
+        approach_clearance_m,
+    )
+    data = best.to_dict()
+    data["point_base_raw"] = [round(float(v), 6) for v in point_base_raw[:3]]
+    data["point_base_table_uncorrected"] = point_base_table_uncorrected
+    data["base_xy_offset_m"] = [round(base_x_offset_m, 6), round(base_y_offset_m, 6)]
+    data["object_height_m"] = round(object_height_m, 6)
+    data.update(grasp_points)
+    data["table_z"] = round(table_z, 6)
+    data["approach_clearance_m"] = round(approach_clearance_m, 6)
+    data["state_source"] = state_source
+    return data
+
+
+def locate_base(args, monitor=None, stage="detect object"):
+    prepare_perception_pose(args)
+    frame, objects = capture_frame_objects(args)
+    if monitor is not None:
+        monitor.update(stage, frame=frame, objects=objects)
+    if not objects:
+        raise RuntimeError("No matching object found")
+    best = objects[0]
+    data = _object_to_base_data(best, args)
+    if monitor is not None:
+        monitor.update(
+            stage,
+            frame=frame,
+            objects=objects,
+            base_points={"target": data["point_base"]},
+        )
+    return data
+
+
+def locate_base_for_stage(args, monitor, stage):
+    if monitor is None:
+        return locate_base(args)
+    return locate_base(args, monitor=monitor, stage=stage)
+
+
+def main():
+    tool = sys.argv[1] if len(sys.argv) > 1 else ""
+    try:
+        args = read_args()
+        configure_so101_runtime()
+        import arm_skills
+
+        if tool == "detect_objects":
+            emit({"objects": [obj.to_dict() for obj in capture_objects(args)]}, True)
+
+        if tool == "diagnose_perception":
+            emit(diagnose_perception(args), True)
+
+        if tool == "plan_grasp_camera":
+            emit(plan_grasp_camera(args), True)
+
+        if tool == "locate_object_camera":
+            objects = capture_objects(args)
+            if not objects:
+                emit("No matching object found", False)
+            emit(objects[0].to_dict(), True)
+
+        if tool == "locate_object_base":
+            emit(locate_base(args), True)
+
+        if tool == "grasp_object":
+            emit(grasp_object(args), True)
+
+        if tool == "move_pinch_to_base_point":
+            emit(move_pinch_to_base_point(args), True)
+
+        if tool == "pick_cube_at":
+            for key in ("x", "y", "z"):
+                if key not in args:
+                    emit(f"pick_cube_at needs numeric {key}", False)
+            out = arm_skills.pick_at(float(args["x"]), float(args["y"]))
+            emit(out, not str(out).startswith(("ERROR", "WARNING")))
+
+        if tool == "set_gripper":
+            action = str(args.get("action", "")).lower()
+            if action not in ("open", "close"):
+                emit("set_gripper needs action open or close", False)
+            width = float(args.get(
+                "width",
+                arm_skills.GRIP_OPEN_W if action == "open" else arm_skills.GRIP_CLOSE_W,
+            ))
+            arm_skills._call(arm_skills.GRIP, width=width)
+            emit({"gripper": action, "width": width}, True)
+
+        if tool == "pick_yellow_to_black_box":
+            emit(pick_yellow_to_black_box(args), True)
+
+        emit(f"unknown tool: {tool}", False)
+    except Exception as exc:
+        emit(str(exc), False)
+
+
+if __name__ == "__main__":
+    main()

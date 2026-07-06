@@ -100,6 +100,6 @@ Use this environment for the ADORA bridge:
 
     ADORA_VENV_PYTHON=$PY \\
     DORA_MOVEIT2=$DORA_MOVEIT2 \\
-    bash $HERE/skills/Adora-RGB-pick/start_bridge.sh
+    bash $HERE/scripts/start_bridge.sh
 
 DONE

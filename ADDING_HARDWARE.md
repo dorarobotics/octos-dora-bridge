@@ -108,7 +108,7 @@ portable hardware definition. A portable robot integration should document:
 
 For ADORA hardware, the root `pyproject.toml` exposes an `adora-hw` optional
 dependency set. It must be installed into the same Python environment used by
-`skills/Adora-RGB-pick/start_bridge.sh`. The remaining robot stack modules come
+`scripts/start_bridge.sh`. The remaining robot stack modules come
 from local checkouts:
 
 ```bash

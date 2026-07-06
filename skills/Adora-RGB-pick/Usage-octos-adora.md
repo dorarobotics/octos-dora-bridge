@@ -5,7 +5,7 @@
 ## 启动octos和dora的bridge
 ```bash
 cd .octos/skills/skills/octos-dora-bridge/
-bash start_bridge.sh 
+bash scripts/start_bridge.sh
 ```
 
 - 确认bridge状态
@@ -51,4 +51,3 @@ octos chat
 # 输入自然语言指令: 执行Adora 机械臂抓取黄色方块放到黑盒
 # 在LLM分解的过程中，有时候会因为llm迭代20次没完成任务，会导致退出，已经提了ISSUES。把任务拆分成多个小任务可以完成。
 ```
-

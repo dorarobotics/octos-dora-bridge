@@ -1,0 +1,17 @@
+{
+  "detector": "color_size",
+  "category": "cube",
+  "color": "orange",
+  "size_range_m": {
+    "min_width": 0.02,
+    "max_width": 0.05,
+    "min_height": 0.02,
+    "max_height": 0.05
+  },
+  "min_area_px": 80,
+  "object_height_m": 0.03,
+  "grasp_height_ratio": 0.35,
+  "min_grasp_clearance_m": 0.008,
+  "open_width": 0.06,
+  "closed_width": 0.0
+}

@@ -10,7 +10,7 @@
 #
 #  and then:
 #
-#      ADORA_VENV_PYTHON=<venv>/bin/python bash skills/Adora-RGB-pick/start_bridge.sh
+#      ADORA_VENV_PYTHON=<venv>/bin/python bash scripts/start_bridge.sh
 #
 #  Run from inside an octos-dora-bridge checkout:
 #      bash scripts/setup.sh

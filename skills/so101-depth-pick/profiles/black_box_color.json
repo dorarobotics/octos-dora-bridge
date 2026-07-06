@@ -1,0 +1,15 @@
+{
+  "detector": "color_size",
+  "category": "cube",
+  "color": "black",
+  "size_range_m": {
+    "min_width": 0.07,
+    "max_width": 0.18,
+    "min_height": 0.04,
+    "max_height": 0.14
+  },
+  "min_area_px": 180,
+  "object_height_m": 0.06,
+  "grasp_height_ratio": 0.35,
+  "min_grasp_clearance_m": 0.008
+}

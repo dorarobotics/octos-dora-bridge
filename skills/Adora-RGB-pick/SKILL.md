@@ -14,7 +14,7 @@ preflight:
 init:
   - label: start dora bridge dataflow
     command: |
-      bash -lc 'for d in "${OCTOS_SKILL_DIR:-}" "$PWD" "$HOME/.octos/skills/Adora-RGB-pick"; do [ -n "$d" ] && [ -x "$d/start_bridge.sh" ] && exec "$d/start_bridge.sh"; done; echo "start_bridge.sh not found" >&2; exit 1'
+      bash -lc 'for f in "${OCTOS_DORA_BRIDGE:-}/scripts/start_bridge.sh" "$PWD/scripts/start_bridge.sh" "$PWD/../../scripts/start_bridge.sh" "$HOME/.octos/skills/skills/octos-dora-bridge/scripts/start_bridge.sh"; do [ -x "$f" ] && exec "$f"; done; echo "scripts/start_bridge.sh not found" >&2; exit 1'
     timeout_secs: 90
     critical: true
   - label: move arm to home
@@ -34,7 +34,7 @@ ready_check:
 shutdown:
   - label: stop dora dataflow
     command: |
-      bash -lc 'for d in "${OCTOS_SKILL_DIR:-}" "$PWD" "$HOME/.octos/skills/Adora-RGB-pick"; do [ -n "$d" ] && [ -x "$d/stop_bridge.sh" ] && exec "$d/stop_bridge.sh"; done; echo "stop_bridge.sh not found" >&2; exit 0'
+      bash -lc 'for f in "${OCTOS_DORA_BRIDGE:-}/scripts/stop_bridge.sh" "$PWD/scripts/stop_bridge.sh" "$PWD/../../scripts/stop_bridge.sh" "$HOME/.octos/skills/skills/octos-dora-bridge/scripts/stop_bridge.sh"; do [ -x "$f" ] && exec "$f"; done; echo "scripts/stop_bridge.sh not found" >&2; exit 0'
     timeout_secs: 10
     critical: false
 emergency_shutdown:
@@ -138,7 +138,7 @@ so Octos chat will let the LLM plan the sequence from visible tools.
 Normally no environment variables are required:
 
 ```bash
-bash /home/dora/.octos/skills/Adora-RGB-pick/start_bridge.sh
+bash /home/dora/.octos/skills/skills/octos-dora-bridge/scripts/start_bridge.sh
 ```
 
 The startup script reads `dataflows/adora-hw-bridge.yaml` as a template and
@@ -203,7 +203,7 @@ Then run the bridge with that interpreter:
 ```bash
 ADORA_VENV_PYTHON=/path/to/adora-venv/bin/python \
 DORA_MOVEIT2=/path/to/dora-moveit2 \
-bash /home/dora/.octos/skills/Adora-RGB-pick/start_bridge.sh
+bash /home/dora/.octos/skills/skills/octos-dora-bridge/scripts/start_bridge.sh
 ```
 
 The Feetech/SCS servo Python module is currently not represented by a standard

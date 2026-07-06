@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "bridge"))
+
+
+def emit(output, success):
+    print(json.dumps({"output": output if isinstance(output, str) else json.dumps(output), "success": bool(success)}))
+    raise SystemExit(0)
+
+
+def read_args():
+    raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+    if not raw.strip():
+        return {}
+    return json.loads(raw)
+
+
+def capture_objects(args):
+    from octos_depth_perception.camera_orbbec import Gemini335Camera
+    from octos_depth_perception.depth_geometry import SizeRange
+    from octos_depth_perception.object_detector import detect_objects_rgbd
+
+    cam = Gemini335Camera(serial_number=os.environ.get("ORBBEC_SN"))
+    try:
+        frame = cam.read()
+        return detect_objects_rgbd(
+            frame.color_bgr,
+            frame.depth_m,
+            frame.intrinsics,
+            category=args.get("category", "cube"),
+            color=args.get("color"),
+            size_range=SizeRange.from_mapping(args.get("size_range_m")),
+            min_depth_m=float(args.get("min_depth_m", 0.05)),
+            max_depth_m=float(args.get("max_depth_m", 2.0)),
+        )
+    finally:
+        cam.close()
+
+
+def main():
+    tool = sys.argv[1] if len(sys.argv) > 1 else ""
+    try:
+        args = read_args()
+        objects = capture_objects(args)
+        data = [obj.to_dict() for obj in objects]
+        if tool == "detect_objects":
+            emit({"objects": data, "count": len(data)}, True)
+        if tool == "locate_object_camera":
+            if not data:
+                emit("No matching object found", False)
+            emit(data[0], True)
+        if tool == "get_object_distance":
+            if not data:
+                emit("No matching object found", False)
+            best = data[0]
+            emit({
+                "distance_m": best["distance_m"],
+                "estimated_size_m": best["estimated_size_m"],
+                "depth_valid_ratio": best["depth_valid_ratio"],
+            }, True)
+        emit(f"unknown tool: {tool}", False)
+    except Exception as exc:
+        emit(str(exc), False)
+
+
+if __name__ == "__main__":
+    main()
