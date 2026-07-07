@@ -2,18 +2,18 @@
   "name": "so101-depth-pick",
   "version": "0.1.0",
   "author": "dorarobotics",
-  "description": "SO101 + Orbbec Gemini 335 RGB-D pick skill with color-size, YOLO segmentation, or Open3D-style point-cloud perception, depth localization, and camera/base-frame transforms.",
+  "description": "SO101 + Orbbec Gemini 335 RGB-D perception and pick skill. For ordinary Chinese perception commands such as 感知, 检测物体, 看一下桌面, 小方块, 3D几何, 点云, OpenCV3D, Open3D, or metric size filtering, prefer detect_objects with detector=open3d_geometry. Use diagnose_perception only when the user explicitly asks to diagnose/debug/check perception stability. open3d_geometry is a detector parameter value, not a standalone tool name.",
   "timeout_secs": 180,
   "requires_network": true,
   "tools": [
     {
       "name": "detect_objects",
-      "description": "Detect objects with Gemini 335 RGB-D using color-size, YOLO segmentation, or Open3D-style point-cloud geometry. Returns camera-frame RGB-D detections; does not move the arm.",
+      "description": "Primary tool for ordinary perception-only requests: 感知, 检测物体, 看一下桌面, 看一下物体, 识别小方块, 检测3到6厘米小方块, OpenCV3D检测, Open3D检测, 3D几何检测, 点云检测. Use this tool before diagnose_perception for normal detection. It opens the realtime perception viewer by default even if the user does not ask for viewer. Returns camera-frame RGB-D detections and does not move the arm. If the user mentions OpenCV3D, Open3D, open3d_geometry, point cloud, 3D geometry, unknown tabletop objects, or metric size filtering, call this tool with detector=open3d_geometry. For 3-6 cm cubes, set size_range_m min_width/max_width/min_height/max_height to 0.03/0.06 meters. open3d_geometry is not a separate tool name; it is the detector value for this tool.",
       "input_schema": {
         "type": "object",
         "properties": {
           "profile": { "type": "string", "description": "Optional profile name from skills/so101-depth-pick/profiles; call args override profile values." },
-          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
+          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "open3d_geometry" },
           "category": { "type": "string", "default": "cube" },
           "color": { "type": "string", "enum": ["red", "orange", "yellow", "green", "blue", "black"] },
           "size_range_m": {
@@ -37,18 +37,24 @@
           "open3d_dbscan_eps_m": { "type": "number", "default": 0.025 },
           "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
           "open3d_min_cluster_points": { "type": "integer", "default": 80 },
-          "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." }
+          "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." },
+          "show_viewer": { "type": "boolean", "default": true, "description": "Open the OpenCV perception viewer. Defaults to true for perception requests." },
+          "viewer_live": { "type": "boolean", "default": true, "description": "Keep refreshing the viewer with live detections while the tool is running. Defaults to true." },
+          "viewer_max_fps": { "type": "number", "default": 6.0 },
+          "viewer_window": { "type": "string", "default": "SO101 perception monitor" },
+          "viewer_save_path": { "type": "string", "default": "/tmp/octos_perception_view/last_overlay.png" },
+          "viewer_hold_s": { "type": "number", "default": 30.0, "description": "How long detect_objects keeps the live viewer open before returning." }
         }
       }
     },
     {
       "name": "diagnose_perception",
-      "description": "Diagnose Gemini 335 perception without moving the arm. Supports color-size, YOLO segmentation, and Open3D-style geometry detectors.",
+      "description": "Use this tool only for explicit perception debugging/diagnosis requests without moving the arm: 诊断感知, 调试检测, 检查相机, 检查OpenCV3D/Open3D检测, 看检测是否稳定, 为什么没检测到, 为什么检测不准. Do not use this tool for ordinary 感知/检测 requests; use detect_objects instead. If the user mentions OpenCV3D, Open3D, open3d_geometry, point cloud, 3D geometry, unknown tabletop objects, or metric size filtering during diagnosis, call this tool with detector=open3d_geometry. open3d_geometry is not a separate tool name; it is the detector value for this tool.",
       "input_schema": {
         "type": "object",
         "properties": {
           "profile": { "type": "string", "description": "Optional profile name from skills/so101-depth-pick/profiles; call args override profile values." },
-          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
+          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "open3d_geometry" },
           "category": { "type": "string", "default": "cube" },
           "color": { "type": "string", "enum": ["red", "orange", "yellow", "green", "blue", "black"] },
           "size_range_m": {
@@ -78,12 +84,12 @@
     },
     {
       "name": "locate_object_camera",
-      "description": "Return the best matching object's Gemini 335 camera-frame 3D point, distance, and actual metric size.",
+      "description": "Use this tool when the user asks for camera-frame object coordinates: 相机坐标, 物体在相机下的位置, 点云中心, 距离和尺寸, 小方块坐标. Returns the best matching object's Gemini 335 camera-frame 3D point, distance, and actual metric size; does not move the arm. If the user mentions OpenCV3D, Open3D, open3d_geometry, point cloud, 3D geometry, unknown tabletop objects, or metric size filtering, call this tool with detector=open3d_geometry. open3d_geometry is not a separate tool name; it is the detector value for this tool.",
       "input_schema": {
         "type": "object",
         "properties": {
           "profile": { "type": "string", "description": "Optional profile name from skills/so101-depth-pick/profiles; call args override profile values." },
-          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
+          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "open3d_geometry" },
           "category": { "type": "string", "default": "cube" },
           "color": { "type": "string" },
           "size_range_m": { "type": "object" },
@@ -107,12 +113,12 @@
     },
     {
       "name": "locate_object_base",
-      "description": "Return the best matching object transformed into the SO101 base frame using hand-eye calibration and live joint state.",
+      "description": "Use this tool when the user asks for SO101 base-frame object coordinates for motion or grasp planning: 基坐标, 机械臂坐标, 转到base frame, 抓取前定位. Returns the best matching object transformed into the SO101 base frame using hand-eye calibration and live joint state; does not grasp by itself. If the user mentions OpenCV3D, Open3D, open3d_geometry, point cloud, 3D geometry, unknown tabletop objects, or metric size filtering, call this tool with detector=open3d_geometry. open3d_geometry is not a separate tool name; it is the detector value for this tool.",
       "input_schema": {
         "type": "object",
         "properties": {
           "profile": { "type": "string", "description": "Optional profile name from skills/so101-depth-pick/profiles; call args override profile values." },
-          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
+          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "open3d_geometry" },
           "category": { "type": "string", "default": "cube" },
           "color": { "type": "string" },
           "size_range_m": { "type": "object" },
@@ -140,12 +146,12 @@
     },
     {
       "name": "grasp_object",
-      "description": "Detect and grasp a matching object using Gemini 335 depth, SO101 hand-eye transform, and SO101 arm control.",
+      "description": "Use this tool directly for grasping/picking requests: 抓取物体, 抓小方块, 去抓它, 夹起来, pick object, grasp object, OpenCV3D检测并抓取, Open3D检测并抓取, 抓取3到6厘米小方块, 抓取时打开实时viewer, 实时显示检测画面并抓取. This tool detects, locates, transforms to SO101 base frame, and executes the grasp. If the user mentions OpenCV3D, Open3D, open3d_geometry, point cloud, 3D geometry, unknown tabletop objects, or metric size filtering, call this tool with detector=open3d_geometry. For 3-6 cm cubes, set size_range_m min_width/max_width/min_height/max_height to 0.03/0.06 meters. For realtime viewing during grasp, set show_viewer=true and viewer_live=true. open3d_geometry is not a separate tool name; it is the detector value for this tool. Do not search files for these requests; call this tool directly with the requested parameters.",
       "input_schema": {
         "type": "object",
         "properties": {
           "profile": { "type": "string", "description": "Optional profile name from skills/so101-depth-pick/profiles; call args override profile values." },
-          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
+          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "open3d_geometry" },
           "category": { "type": "string", "default": "cube" },
           "color": { "type": "string" },
           "size_range_m": { "type": "object" },
@@ -181,49 +187,6 @@
           "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
           "open3d_min_cluster_points": { "type": "integer", "default": 80 },
           "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." }
-        }
-      }
-    },
-    {
-      "name": "plan_grasp_camera",
-      "description": "Plan a camera-frame grasp for the best matching Gemini 335 RGB-D detection. geometry_topdown is default; anygrasp remains optional.",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "profile": { "type": "string", "description": "Optional profile name from skills/so101-depth-pick/profiles; call args override profile values." },
-          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
-          "grasp_planner": { "type": "string", "enum": ["geometry_topdown", "anygrasp"], "default": "geometry_topdown" },
-          "category": { "type": "string", "default": "cube" },
-          "color": { "type": "string" },
-          "size_range_m": { "type": "object" },
-          "min_valid_ratio": { "type": "number", "default": 0.15 },
-          "min_area_px": { "type": "integer", "default": 120 },
-          "yolo_model_path": { "type": "string" },
-          "yolo_confidence": { "type": "number", "default": 0.25 },
-          "yolo_device": { "type": "string", "default": "cpu" },
-          "yolo_classes": { "type": "array", "items": { "type": "string" } },
-          "workspace_bounds_m": { "type": "object" },
-          "open3d_voxel_size_m": { "type": "number", "default": 0.005 },
-          "open3d_table_threshold_m": { "type": "number", "default": 0.01 },
-          "open3d_dbscan_eps_m": { "type": "number", "default": 0.025 },
-          "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
-          "open3d_min_cluster_points": { "type": "integer", "default": 80 },
-          "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." },
-          "workspace_bounds_m": { "type": "object" },
-          "open3d_voxel_size_m": { "type": "number", "default": 0.005 },
-          "open3d_table_threshold_m": { "type": "number", "default": 0.01 },
-          "open3d_dbscan_eps_m": { "type": "number", "default": 0.025 },
-          "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
-          "open3d_min_cluster_points": { "type": "integer", "default": 80 },
-          "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." },
-          "anygrasp_checkpoint_path": { "type": "string" },
-          "max_gripper_width": { "type": "number", "default": 0.08 },
-          "gripper_height": { "type": "number", "default": 0.03 },
-          "top_down_grasp": { "type": "boolean", "default": false },
-          "apply_object_mask": { "type": "boolean", "default": true },
-          "dense_grasp": { "type": "boolean", "default": false },
-          "collision_detection": { "type": "boolean", "default": true },
-          "bbox_margin_px": { "type": "integer", "default": 8 }
         }
       }
     },
@@ -282,8 +245,7 @@
         "type": "object",
         "properties": {
           "profile": { "type": "string", "description": "Optional target profile name from skills/so101-depth-pick/profiles; call args override profile values." },
-          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "color_size" },
-          "grasp_planner": { "type": "string", "enum": ["geometry_topdown", "anygrasp"], "default": "geometry_topdown" },
+          "detector": { "type": "string", "enum": ["color_size", "prop_detector", "yolo_seg", "open3d_geometry"], "default": "open3d_geometry" },
           "category": { "type": "string", "default": "cube" },
           "color": { "type": "string", "default": "yellow" },
           "box_color": { "type": "string", "default": "black" },
@@ -312,7 +274,6 @@
           "open3d_dbscan_min_points": { "type": "integer", "default": 30 },
           "open3d_min_cluster_points": { "type": "integer", "default": 80 },
           "open3d_image_roi_fraction": { "type": "object", "description": "Optional image ROI fractions with x_min, x_max, y_min, y_max in [0, 1] for Open3D geometry detection." },
-          "anygrasp_checkpoint_path": { "type": "string" },
           "object_height_m": { "type": "number", "default": 0.03 },
           "grasp_height_ratio": { "type": "number", "default": 0.35 },
           "min_grasp_clearance_m": { "type": "number", "default": 0.008 },

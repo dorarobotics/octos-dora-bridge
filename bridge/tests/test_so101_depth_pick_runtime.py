@@ -37,7 +37,9 @@ def test_so101_depth_pick_runtime_defaults_do_not_use_adora_skill(monkeypatch):
 
     assert "Adora-RGB-pick" not in str(skill_pack)
     assert os.environ["SKILL_PACK"].endswith("moveit-arm-dora-node/skill_pack")
-    assert os.environ["MODEL_NAME"].endswith("dora-moveit2/examples/move_group_demo/models/so101_pickplace.xml")
+    assert os.environ["MODEL_NAME"].endswith(
+        "dora-moveit2/examples/move_group_demo/models/so101_pickplace_hw_calibrated.xml"
+    )
     assert os.environ["ROBOT_MANIFEST"].endswith("rebot-hw-dora-node/manifests/so101-hw.json")
     assert "Adora-RGB-pick" not in os.environ["MODEL_NAME"]
     assert "Adora-RGB-pick" not in os.environ["ROBOT_MANIFEST"]
@@ -62,12 +64,6 @@ def test_so101_depth_pick_rejects_unsupported_detector():
         assert "unsupported detector" in str(exc)
     else:
         raise AssertionError("unsupported detector should fail")
-
-
-def test_so101_depth_pick_accepts_anygrasp_planner():
-    main = _load_skill_main()
-
-    assert main.validate_grasp_planner({"grasp_planner": "anygrasp"}) == "anygrasp"
 
 
 def test_so101_depth_pick_accepts_yolo_seg_detector():
@@ -135,15 +131,12 @@ def test_yolo_class_names_ignores_empty_entries(monkeypatch):
     assert main.yolo_class_names({"yolo_classes": ["cup", "", "apple"]}) == ["cup", "apple"]
 
 
-def test_so101_depth_pick_rejects_unknown_grasp_planner():
-    main = _load_skill_main()
+def test_so101_depth_pick_has_no_unused_grasp_planning_dependency():
+    source = SKILL_MAIN.read_text()
 
-    try:
-        main.validate_grasp_planner({"grasp_planner": "unknown"})
-    except ValueError as exc:
-        assert "unsupported grasp_planner" in str(exc)
-    else:
-        raise AssertionError("unsupported grasp_planner should fail")
+    assert "octos_grasp_planning" not in source
+    assert "plan_grasp_camera" not in source
+    assert "anygrasp" not in source.lower()
 
 
 def test_so101_depth_pick_manifest_exposes_strategy_parameters():
@@ -162,12 +155,13 @@ def test_so101_depth_pick_manifest_exposes_strategy_parameters():
     assert tool_props["grasp_object"]["object_height_m"]["default"] == 0.03
     assert tool_props["grasp_object"]["grasp_height_ratio"]["default"] == 0.35
     assert tool_props["grasp_object"]["min_grasp_clearance_m"]["default"] == 0.008
-    assert tool_props["plan_grasp_camera"]["detector"]["enum"] == expected_detectors
-    assert tool_props["plan_grasp_camera"]["grasp_planner"]["enum"] == ["geometry_topdown", "anygrasp"]
-    assert tool_props["plan_grasp_camera"]["profile"]["type"] == "string"
     assert tool_props["pick_yellow_to_black_box"]["detector"]["enum"] == expected_detectors
-    assert tool_props["pick_yellow_to_black_box"]["grasp_planner"]["enum"] == ["geometry_topdown", "anygrasp"]
     assert tool_props["pick_yellow_to_black_box"]["profile"]["type"] == "string"
+
+    assert "plan_grasp_camera" not in tool_props
+    for props in tool_props.values():
+        assert "grasp_planner" not in props
+        assert "anygrasp_checkpoint_path" not in props
 
 
 def test_so101_depth_pick_monitor_overlay_draws_stage_and_objects():
@@ -281,7 +275,6 @@ def test_so101_depth_pick_manifest_exposes_yolo_parameters():
         "locate_object_camera",
         "locate_object_base",
         "grasp_object",
-        "plan_grasp_camera",
         "pick_yellow_to_black_box",
     )
 
@@ -307,7 +300,6 @@ def test_so101_depth_pick_manifest_exposes_open3d_image_roi_parameter():
         "locate_object_camera",
         "locate_object_base",
         "grasp_object",
-        "plan_grasp_camera",
         "pick_yellow_to_black_box",
     )
 
@@ -586,7 +578,13 @@ def test_grasp_object_locks_detected_target_and_does_not_relocate_during_motion(
 
     monkeypatch.setattr(main, "locate_base_for_stage", fake_locate)
     monkeypatch.setattr(main, "set_gripper_width", lambda width: calls.append(("gripper", round(width, 3))))
-    monkeypatch.setattr(main, "move_to_pose", lambda pos: calls.append(("move", [round(float(v), 6) for v in pos])))
+
+    def fake_move_pinch(args):
+        point = [round(float(args[k]), 6) for k in ("x", "y", "z")]
+        calls.append(("pinch", point))
+        return {"point_base": point, "actual_error_norm_m": 0.001}
+
+    monkeypatch.setattr(main, "move_pinch_to_base_point", fake_move_pinch)
 
     result = main.grasp_object(
         {
@@ -601,9 +599,10 @@ def test_grasp_object_locks_detected_target_and_does_not_relocate_during_motion(
     )
 
     assert [call for call in calls if call[0] == "locate"] == [("locate", "detect object")]
-    assert ("move", [0.31, -0.02, 0.08]) in calls
-    assert ("move", [0.31, -0.02, 0.0175]) in calls
+    assert ("pinch", [0.31, -0.02, 0.08]) in calls
+    assert ("pinch", [0.31, -0.02, 0.0175]) in calls
     assert result["target_base"] == [0.31, -0.02, 0.0175]
+    assert result["motion_diagnostics"]["grasp"]["actual_error_norm_m"] == 0.001
 
 
 def test_solve_pinch_ik_converts_real_table_z_to_mujoco_z(monkeypatch):
@@ -685,11 +684,17 @@ def test_grasp_object_uses_depth_safe_motion_path(monkeypatch):
         "set_gripper_width",
         lambda width: calls.append(("gripper", round(float(width), 6))),
     )
-    monkeypatch.setattr(
-        main,
-        "move_to_pose",
-        lambda point: calls.append(("move", [round(float(v), 6) for v in point])),
-    )
+    def fake_move_pinch(args):
+        point = [round(float(args[k]), 6) for k in ("x", "y", "z")]
+        calls.append(("pinch", point))
+        return {
+            "point_base": point,
+            "actual_pinch_fk": point,
+            "actual_error_m": [0.0, 0.0, 0.0],
+            "actual_error_norm_m": 0.0,
+        }
+
+    monkeypatch.setattr(main, "move_pinch_to_base_point", fake_move_pinch)
 
     result = main.grasp_object(
         {
@@ -706,12 +711,13 @@ def test_grasp_object_uses_depth_safe_motion_path(monkeypatch):
 
     assert calls == [
         ("gripper", 0.06),
-        ("move", [0.21, 0.08, 0.08]),
-        ("move", [0.21, 0.08, -0.02]),
-        ("move", [0.21, 0.08, -0.138]),
+        ("pinch", [0.21, 0.08, 0.08]),
+        ("pinch", [0.21, 0.08, -0.02]),
+        ("pinch", [0.21, 0.08, -0.138]),
         ("gripper", 0.0),
-        ("move", [0.21, 0.08, 0.07]),
+        ("pinch", [0.21, 0.08, 0.07]),
     ]
     assert result["grasped"] is True
     assert result["target_base"] == [0.21, 0.08, -0.138]
     assert result["perception"] == located
+    assert result["motion_diagnostics"]["lift"]["actual_error_norm_m"] == 0.0

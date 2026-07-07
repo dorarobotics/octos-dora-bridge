@@ -7,7 +7,22 @@ import numpy as np
 
 
 DORA_MOVEIT2 = Path("/home/dora/so101-sim/dora-moveit2")
-SO101_MODEL = DORA_MOVEIT2 / "examples" / "move_group_demo" / "models" / "so101_pickplace.xml"
+SO101_SIM_MODEL = DORA_MOVEIT2 / "examples" / "move_group_demo" / "models" / "so101_pickplace.xml"
+SO101_HW_MODEL = DORA_MOVEIT2 / "examples" / "move_group_demo" / "models" / "so101_pickplace_hw_calibrated.xml"
+
+
+def _pinch_pos(model_path: Path) -> np.ndarray:
+    model = mujoco.MjModel.from_xml_path(str(model_path))
+    site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "pinch")
+    return model.site_pos[site_id].copy()
+
+
+def test_so101_sim_and_hardware_pinch_models_are_named_separately():
+    assert SO101_SIM_MODEL.exists()
+    assert SO101_HW_MODEL.exists()
+    assert np.allclose(_pinch_pos(SO101_SIM_MODEL), np.array([0.006, -0.000218, -0.12]))
+    assert np.allclose(_pinch_pos(SO101_HW_MODEL), np.array([-0.0055, -0.0002, -0.0894]))
+    assert not np.allclose(_pinch_pos(SO101_SIM_MODEL), _pinch_pos(SO101_HW_MODEL))
 
 
 def test_so101_config_fk_matches_mujoco_pinch_site():
@@ -17,7 +32,7 @@ def test_so101_config_fk_matches_mujoco_pinch_site():
     from dora_moveit.ik_solver.advanced_ik_solver import ForwardKinematics
     from move_group_demo.config.so101 import SO101Config
 
-    model = mujoco.MjModel.from_xml_path(str(SO101_MODEL))
+    model = mujoco.MjModel.from_xml_path(str(SO101_HW_MODEL))
     data = mujoco.MjData(model)
     pinch_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "pinch")
     fk = ForwardKinematics(config=SO101Config)
@@ -45,7 +60,7 @@ def test_so101_de_ik_prefers_seed_near_home_for_reachable_point():
     from dora_moveit.ik_solver.advanced_ik_solver import DifferentialEvolutionIKSolver, IKRequest
     from move_group_demo.config.so101 import SO101Config
 
-    model = mujoco.MjModel.from_xml_path(str(SO101_MODEL))
+    model = mujoco.MjModel.from_xml_path(str(SO101_HW_MODEL))
     data = mujoco.MjData(model)
     pinch_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "pinch")
 

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "provider": "openai",
+  "model": "deepseek-chat",
+  "base_url": "https://api.deepseek.com/v1",
+  "api_key_env": "OPENAI_API_KEY",
+  "tool_policy": {
+    "allow": [
+      "detect_objects",
+      "diagnose_perception",
+      "locate_object_camera",
+      "locate_object_base",
+      "grasp_object",
+      "move_pinch_to_base_point",
+      "pick_cube_at",
+      "set_gripper",
+      "pick_yellow_to_black_box"
+    ],
+    "deny": []
+  }
+}

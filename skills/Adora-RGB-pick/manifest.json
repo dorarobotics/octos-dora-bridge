@@ -2,7 +2,7 @@
   "name": "Adora-RGB-pick",
   "version": "0.5.0",
   "author": "dorarobotics",
-  "description": "ADORA RGB camera pick-and-place skill with hand-eye calibration, black-box drop-off detection, and SPEC bridge motion control.",
+  "description": "ADORA-only RGB camera pick-and-place skill with hand-eye calibration, black-box drop-off detection, and SPEC bridge motion control. Do not use this skill for SO101, Gemini 335 RGB-D, OpenCV3D/Open3D/point-cloud perception, metric size filtering, or realtime viewer requests; use the so101-depth-pick tools instead for those tasks.",
   "timeout_secs": 420,
   "requires_network": true,
   "tools": [
@@ -112,7 +112,7 @@
     },
     {
       "name": "detect_blocks",
-      "description": "Capture a frame from the RGB camera and detect colored blocks (red, green, blue, yellow, black) using HSV thresholding. Returns each block's color and pixel position. Optionally filter by color.",
+      "description": "ADORA-only legacy RGB/HSV block detector. Capture one RGB frame and detect colored blocks (red, green, blue, yellow, black), returning color and pixel position only. Do not use this tool for SO101, Gemini 335 RGB-D, OpenCV3D/Open3D/point-cloud perception, 3D geometry, metric size filtering, small-cube size detection, or realtime viewer requests; use so101-depth-pick detect_objects/locate_object_camera/grasp_object instead.",
       "input_schema": {
         "type": "object",
         "properties": {

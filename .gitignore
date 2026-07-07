@@ -4,6 +4,8 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*.log
+log.txt
 .dora/
 out/
 .adora-hw-run/
@@ -22,11 +24,27 @@ dist/
 .DS_Store
 
 # Local docs (planning, internal notes)
-docs/
+progress/
 out/
 venv-python
 SO101_DEMO_RUNBOOK.md
 .octos/
+*.egg-info/
+Log/
+bridge/Log/
+bridge/tests/
+
+# Local model/runtime artifacts
+*.pt
+
+# Local calibration captures and intermediate hand-eye results
+skills/so101-depth-pick/calibration/gemini335_hand_eye_images/
+skills/so101-depth-pick/calibration/current_detection.png
+skills/so101-depth-pick/calibration/hand_eye_data.json
+skills/so101-depth-pick/calibration/*candidate*.json
+skills/so101-depth-pick/calibration/*summary*.json
+skills/so101-depth-pick/calibration/*.bak-*
+skills/so101-depth-pick/calibration/*.pre-filter-bak-*
 
 # Claude Code
 .claude/

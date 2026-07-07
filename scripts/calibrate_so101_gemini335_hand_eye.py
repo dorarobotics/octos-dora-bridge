@@ -31,7 +31,13 @@ DEFAULT_SKILL_PACK = REPO_ROOT / "skills" / "so101-depth-pick"
 DEFAULT_MOVEIT_SKILL_PACK = REPO_ROOT.parent / "moveit-arm-dora-node" / "skill_pack"
 DEFAULT_REBOT_MANIFEST = REPO_ROOT.parent / "rebot-hw-dora-node" / "manifests" / "so101-hw.json"
 DEFAULT_DORA_MOVEIT2 = Path(os.environ.get("DORA_MOVEIT2", "/home/dora/so101-sim/dora-moveit2"))
-DEFAULT_SO101_MODEL = DEFAULT_DORA_MOVEIT2 / "examples" / "move_group_demo" / "models" / "so101_pickplace.xml"
+DEFAULT_SO101_MODEL = (
+    DEFAULT_DORA_MOVEIT2
+    / "examples"
+    / "move_group_demo"
+    / "models"
+    / "so101_pickplace_hw_calibrated.xml"
+)
 JOINT_KEYS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
 
 POSES_DEG = [

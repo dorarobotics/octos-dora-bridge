@@ -35,9 +35,11 @@ RGB detects candidates, depth points inside the object mask estimate the 3D
 geometry center and real size, then this skill transforms the camera-frame point
 into the SO101 base frame and executes motion through the dora bridge.
 
-The grasp strategy uses the bridge-level `octos_grasp_planning` boundary. The
-current workflow still uses a geometry top-down grasp; future AnyGrasp support
-should be added behind that boundary, not inside this skill's motion code.
+The grasp strategy is the hardware-calibrated SO101 top-down workflow in this
+skill: detect an object, convert the selected camera-frame center to the SO101
+base frame, move the calibrated pinch point to that base-frame target, then close
+the gripper. Unused experimental camera-frame grasp planners have been removed
+from the runtime path.
 
 For colored cubes, `point_camera` and `point_base` are the mask point-cloud
 centroid when the detector can build an object mask. The output includes

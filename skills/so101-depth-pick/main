@@ -23,7 +23,13 @@ SKILLS_ROOT = REPO_ROOT.parent
 DEFAULT_MOVEIT_SKILL_PACK = SKILLS_ROOT / "moveit-arm-dora-node" / "skill_pack"
 DEFAULT_REBOT_MANIFEST = SKILLS_ROOT / "rebot-hw-dora-node" / "manifests" / "so101-hw.json"
 DEFAULT_DORA_MOVEIT2 = Path(os.environ.get("DORA_MOVEIT2", "/home/dora/so101-sim/dora-moveit2"))
-DEFAULT_SO101_MODEL = DEFAULT_DORA_MOVEIT2 / "examples" / "move_group_demo" / "models" / "so101_pickplace.xml"
+DEFAULT_SO101_MODEL = (
+    DEFAULT_DORA_MOVEIT2
+    / "examples"
+    / "move_group_demo"
+    / "models"
+    / "so101_pickplace_hw_calibrated.xml"
+)
 DEFAULT_TABLE_Z = 0.0
 DEFAULT_APPROACH_CLEARANCE_M = 0.08
 DEFAULT_BASE_X_OFFSET_M = 0.0
@@ -39,7 +45,6 @@ DEFAULT_SO101_HOME = [
     -0.02301533079552962,
 ]
 SUPPORTED_DETECTORS = {"color_size", "prop_detector", "yolo_seg", "open3d_geometry"}
-SUPPORTED_GRASP_PLANNERS = {"geometry_topdown", "anygrasp"}
 DEFAULT_PICK_VIEWER_WINDOW = "SO101 pick monitor"
 DEFAULT_PICK_VIEWER_SAVE_PATH = "/tmp/octos_pick_view/last_overlay.png"
 
@@ -104,7 +109,7 @@ def resolve_profile_args(args: dict) -> dict:
 
 
 def validate_detector(args):
-    detector = str(args.get("detector", "color_size"))
+    detector = str(args.get("detector", "open3d_geometry"))
     if detector not in SUPPORTED_DETECTORS:
         raise ValueError(
             f"unsupported detector: {detector}. Supported detectors: {', '.join(sorted(SUPPORTED_DETECTORS))}"
@@ -217,7 +222,9 @@ class PickMonitor:
         if thread is None:
             return
         self._stop_live.set()
-        thread.join(timeout=2.0)
+        thread.join(timeout=15.0)
+        if thread.is_alive():
+            return
         self._live_thread = None
 
     def _live_loop(self, args):
@@ -251,6 +258,53 @@ class PickMonitor:
 
 def maybe_pick_monitor(args):
     return PickMonitor(args) if bool(args.get("show_viewer", False)) else None
+
+
+def perception_viewer_args(args):
+    viewer_args = dict(args)
+    viewer_args.setdefault("show_viewer", True)
+    viewer_args.setdefault("viewer_live", True)
+    viewer_args.setdefault("viewer_window", "SO101 perception monitor")
+    viewer_args.setdefault("viewer_save_path", "/tmp/octos_perception_view/last_overlay.png")
+    return viewer_args
+
+
+def detect_objects(args):
+    viewer_args = perception_viewer_args(args)
+    monitor = maybe_pick_monitor(viewer_args)
+    try:
+        frame, objects = capture_frame_objects(viewer_args)
+        if monitor is not None:
+            monitor.update(
+                "detect objects",
+                frame=frame,
+                objects=objects,
+                message=f"objects={len(objects)}",
+            )
+            if bool(viewer_args.get("viewer_live", False)):
+                monitor.start_live(viewer_args)
+                hold_s = float(viewer_args.get(
+                    "viewer_hold_s",
+                    os.environ.get("SO101_PERCEPTION_VIEWER_HOLD_S", 30.0),
+                ))
+                deadline = time.monotonic() + max(0.0, hold_s)
+                while time.monotonic() < deadline:
+                    time.sleep(0.1)
+        return {
+            "objects": [obj.to_dict() for obj in objects],
+            "viewer": {
+                "shown": bool(monitor is not None),
+                "live": bool(viewer_args.get("viewer_live", False)),
+                "hold_s": float(viewer_args.get(
+                    "viewer_hold_s",
+                    os.environ.get("SO101_PERCEPTION_VIEWER_HOLD_S", 30.0),
+                )),
+                "save_path": str(viewer_args.get("viewer_save_path") or DEFAULT_PICK_VIEWER_SAVE_PATH),
+            },
+        }
+    finally:
+        if monitor is not None:
+            monitor.close()
 
 
 def yolo_class_names(args):
@@ -315,15 +369,6 @@ def create_object_detector(args):
             return PropDetector(base_detector=detector)
         return detector
     return ColorSizeDetector(min_area_px=int(args.get("min_area_px", 120)))
-
-
-def validate_grasp_planner(args):
-    planner = str(args.get("grasp_planner", "geometry_topdown"))
-    if planner not in SUPPORTED_GRASP_PLANNERS:
-        raise ValueError(
-            f"unsupported grasp_planner: {planner}. Supported planners: {', '.join(sorted(SUPPORTED_GRASP_PLANNERS))}"
-        )
-    return planner
 
 
 def configure_so101_runtime():
@@ -562,116 +607,6 @@ def capture_objects(args):
     return objects
 
 
-def _capture_frame_detections(args):
-    from octos_camera.orbbec_gemini335 import Gemini335Camera
-    from octos_object_perception.depth_geometry import CameraIntrinsics
-    from octos_object_perception.pipeline import ObjectPerceptionPipeline
-    from octos_object_perception.types import TargetSpec
-
-    cam = Gemini335Camera(serial_number=os.environ.get("ORBBEC_SN"))
-    with redirect_native_stdout_to_stderr():
-        try:
-            frame = cam.read()
-            target = TargetSpec.from_mapping(args)
-            intrinsics = CameraIntrinsics(
-                fx=frame.intrinsics.fx,
-                fy=frame.intrinsics.fy,
-                cx=frame.intrinsics.cx,
-                cy=frame.intrinsics.cy,
-                width=frame.intrinsics.width,
-                height=frame.intrinsics.height,
-            )
-            detector = create_object_detector(args)
-            if hasattr(detector, "detect"):
-                detections = detector.detect(frame.color_bgr, target)
-            else:
-                detections = []
-            objects = ObjectPerceptionPipeline(detector).detect(
-                color_bgr=frame.color_bgr,
-                depth_m=frame.depth_m,
-                intrinsics=intrinsics,
-                target=target,
-            )
-            return frame, intrinsics, target, detections, objects
-        finally:
-            cam.close()
-
-
-def _best_detection_for_object(detections, obj):
-    for detection in detections:
-        if detection.bbox == obj.bbox and detection.category == obj.category and detection.color == obj.color:
-            return detection
-    for detection in detections:
-        if detection.bbox == obj.bbox:
-            return detection
-    raise RuntimeError("Best object detection mask is unavailable for grasp planning")
-
-
-def _grasp_candidate_to_dict(candidate):
-    return {
-        "position_camera": list(candidate.position_camera),
-        "rotation_camera": [list(row) for row in candidate.rotation_camera],
-        "width_m": candidate.width_m,
-        "score": candidate.score,
-        "source": candidate.source,
-    }
-
-
-def _anygrasp_config_from_args(args):
-    from octos_grasp_planning.anygrasp_adapter import AnyGraspConfig
-
-    return AnyGraspConfig(
-        checkpoint_path=args.get("anygrasp_checkpoint_path") or os.environ.get("ANYGRASP_CHECKPOINT_PATH"),
-        max_gripper_width=float(args.get("max_gripper_width", 0.08)),
-        gripper_height=float(args.get("gripper_height", 0.03)),
-        top_down_grasp=bool(args.get("top_down_grasp", False)),
-        debug=bool(args.get("debug", False)),
-        apply_object_mask=bool(args.get("apply_object_mask", True)),
-        dense_grasp=bool(args.get("dense_grasp", False)),
-        collision_detection=bool(args.get("collision_detection", True)),
-        bbox_margin_px=int(args.get("bbox_margin_px", 8)),
-        num_candidates=int(args.get("num_candidates", 20)),
-    )
-
-
-def plan_grasp_camera(args):
-    planner = validate_grasp_planner(args)
-    frame, intrinsics, target, detections, objects = _capture_frame_detections(args)
-    if not objects:
-        raise RuntimeError("No matching object found")
-    best = objects[0]
-
-    if planner == "geometry_topdown":
-        from octos_grasp_planning.geometry_topdown import plan_topdown_grasp
-
-        candidate = plan_topdown_grasp(
-            best,
-            table_z_camera=args.get("table_z_camera"),
-            table_clearance_m=float(args.get("table_clearance_m", 0.04)),
-            width_margin_m=float(args.get("width_margin_m", 0.005)),
-            top_bias_m=float(args.get("top_bias_m", 0.006)),
-        )
-    elif planner == "anygrasp":
-        from octos_grasp_planning.anygrasp_adapter import plan_anygrasp
-
-        candidate = plan_anygrasp(
-            color_bgr=frame.color_bgr,
-            depth_m=frame.depth_m,
-            intrinsics=intrinsics,
-            detection=_best_detection_for_object(detections, best),
-            target=target,
-            config=_anygrasp_config_from_args(args),
-        )
-    else:
-        raise ValueError(f"unsupported grasp_planner: {planner}")
-
-    return {
-        "target": best.to_dict(),
-        "grasp": _grasp_candidate_to_dict(candidate),
-        "planner": planner,
-    }
-
-
 def diagnose_perception(args):
     from octos_camera.orbbec_gemini335 import Gemini335Camera
     from octos_object_perception.depth_geometry import CameraIntrinsics
@@ -815,7 +750,7 @@ def move_to_pose(position, timeout: float = 45.0):
     return result
 
 
-def move_to_joint_state(joints, timeout: float = 45.0):
+def move_to_joint_state(joints, timeout: float = 45.0, timeout_joint_tolerance_rad=None):
     target = [float(v) for v in joints]
     try:
         result = bridge_tool(
@@ -826,7 +761,12 @@ def move_to_joint_state(joints, timeout: float = 45.0):
     except (TimeoutError, socket.timeout, urllib.error.URLError) as exc:
         actual, _ = current_joint_positions()
         max_error = max(abs(a - b) for a, b in zip(actual[:5], target))
-        if max_error > float(os.environ.get("SO101_MOVE_TIMEOUT_JOINT_TOLERANCE_RAD", "0.01")):
+        tolerance = float(
+            timeout_joint_tolerance_rad
+            if timeout_joint_tolerance_rad is not None
+            else os.environ.get("SO101_MOVE_TIMEOUT_JOINT_TOLERANCE_RAD", "0.01")
+        )
+        if max_error > tolerance:
             raise
         result = {
             "timeout_recovered": True,
@@ -857,7 +797,12 @@ def prepare_perception_pose(args: dict):
     joint_state = args.get("perception_joint_state")
     if joint_state is not None:
         joints = parse_vector5(joint_state, name="perception_joint_state")
-        return move_to_joint_state(joints, timeout=float(args.get("perception_pose_timeout_s", 45.0)))
+        tolerance = args.get("perception_joint_tolerance_rad")
+        return move_to_joint_state(
+            joints,
+            timeout=float(args.get("perception_pose_timeout_s", 45.0)),
+            timeout_joint_tolerance_rad=None if tolerance is None else float(tolerance),
+        )
     pose_name = str(args.get("perception_pose_name") or "").strip()
     if not pose_name:
         raise ValueError(
@@ -914,7 +859,6 @@ def set_gripper_width(width: float):
 
 
 def safe_grasp_z(located: dict, args: dict):
-    validate_grasp_planner(args)
     table_z = float(located.get("table_z", DEFAULT_TABLE_Z))
     detected_height = located.get("estimated_size_m", {}).get("height", 0.035)
     default_height = DEFAULT_CUBE_HEIGHT_M if located.get("category") == "cube" else detected_height
@@ -926,20 +870,11 @@ def safe_grasp_z(located: dict, args: dict):
 
 
 def pick_yellow_to_black_box(args):
-    planner = validate_grasp_planner(args)
     monitor = maybe_pick_monitor(args)
-    if planner == "anygrasp":
-        planned = plan_grasp_camera(args)
-        raise RuntimeError(
-            "AnyGrasp camera-frame planning succeeded, but SO101 execution of arbitrary 6D "
-            f"AnyGrasp candidates is not enabled yet. Use grasp_planner='geometry_topdown' "
-            f"for motion. Planned grasp: {json.dumps(planned['grasp'])}"
-        )
-
     try:
         target_args = {
             "category": "cube",
-            "detector": args.get("detector", "color_size"),
+            "detector": args.get("detector", "open3d_geometry"),
             "color": args.get("color", "yellow"),
             "size_range_m": args.get(
                 "size_range_m",
@@ -974,7 +909,7 @@ def pick_yellow_to_black_box(args):
 
         box_args = {
             "category": "cube",
-            "detector": args.get("detector", "color_size"),
+            "detector": args.get("detector", "open3d_geometry"),
             "color": args.get("box_color", "black"),
             "approach_clearance_m": float(args.get("approach_clearance_m", 0.10)),
         }
@@ -1016,7 +951,6 @@ def pick_yellow_to_black_box(args):
 
 
 def grasp_object(args):
-    validate_grasp_planner(args)
     monitor = maybe_pick_monitor(args)
     try:
         located = locate_base_for_stage(args, monitor, f"detect {args.get('color') or 'object'}")
@@ -1027,19 +961,27 @@ def grasp_object(args):
         pre_z = max(grasp_z + 0.07, float(args.get("pregrasp_z", -0.02)))
         high_z = float(args.get("high_z", 0.08))
         lift_z = float(args.get("lift_z", 0.07))
+        motion_diagnostics = {}
+
+        def move_pinch_step(name, point):
+            step_args = dict(args)
+            step_args.update({"x": point[0], "y": point[1], "z": point[2]})
+            result = move_pinch_to_base_point(step_args)
+            motion_diagnostics[name] = result
+            return result
 
         monitor.update("open gripper", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
         set_gripper_width(float(args.get("open_width", 0.06)))
         monitor.update("move above grasp", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
-        move_to_pose([x, y, high_z])
+        move_pinch_step("above_grasp", [x, y, high_z])
         monitor.update("move to pregrasp", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
-        move_to_pose([x, y, pre_z])
+        move_pinch_step("pregrasp", [x, y, pre_z])
         monitor.update("move to grasp", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
-        move_to_pose([x, y, grasp_z])
+        move_pinch_step("grasp", [x, y, grasp_z])
         monitor.update("close gripper", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
         set_gripper_width(float(args.get("closed_width", 0.0)))
         monitor.update("lift object", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
-        move_to_pose([x, y, lift_z])
+        move_pinch_step("lift", [x, y, lift_z])
         monitor.update("done", base_points={"grasp": [x, y, grasp_z]}) if monitor else None
 
         return {
@@ -1051,6 +993,7 @@ def grasp_object(args):
                 "pregrasp_xyz": [round(x, 6), round(y, 6), round(pre_z, 6)],
                 "lift_xyz": [round(x, 6), round(y, 6), round(lift_z, 6)],
             },
+            "motion_diagnostics": motion_diagnostics,
         }
     finally:
         if monitor is not None:
@@ -1155,13 +1098,10 @@ def main():
         import arm_skills
 
         if tool == "detect_objects":
-            emit({"objects": [obj.to_dict() for obj in capture_objects(args)]}, True)
+            emit(detect_objects(args), True)
 
         if tool == "diagnose_perception":
             emit(diagnose_perception(args), True)
-
-        if tool == "plan_grasp_camera":
-            emit(plan_grasp_camera(args), True)
 
         if tool == "locate_object_camera":
             objects = capture_objects(args)
