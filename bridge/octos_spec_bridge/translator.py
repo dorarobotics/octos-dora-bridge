@@ -8,6 +8,7 @@ wire shape — keep them pure and well-tested.
 from __future__ import annotations
 
 import uuid
+# NOTE: `datetime.UTC` is 3.11+; this package supports 3.10, so use timezone.utc.
 from datetime import datetime, timezone
 from typing import Any
 

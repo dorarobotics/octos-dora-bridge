@@ -1,5 +1,12 @@
 # Manual: nav-base visual demo (asus / GPU-less remote-desktop box)
 
+> **Runtime version note.** This document is the validated record of a run on
+> **dora 0.4.0**, and its dora pins are left as-run. The repo now targets
+> **dora 1.0.1** — `pip install "dora-rs==1.0.1" "dora-rs-cli==1.0.1"`, Python
+> 3.11+, no cargo build. For a fresh setup use 1.0.1 and see [`DORA_1.0.md`](DORA_1.0.md)
+> instead of the version pins below; everything else here still applies.
+
+
 Complete copy-paste commands to bring up the **visual nav-base patrol demo** by
 hand — the same thing `scripts/run-nav-viz-asus.sh` does, broken into steps you
 can run and debug one at a time.

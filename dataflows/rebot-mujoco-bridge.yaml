@@ -15,6 +15,9 @@
 # `path:`/`args:`, so the live run on epyc uses a copy of this file placed inside
 # the dora-moveit2 example dir (where the node scripts' relative paths resolve).
 # dora CLI + python dora-rs must both be 1.0.1.
+# NOTE: the version pin below is the as-validated record; the repo now targets
+# dora 1.0.1 on py3.10 via the vendored cp310 wheels. See DORA_1.0.md and
+# vendor/wheels/README.md.
 
 nodes:
   - id: mujoco_sim

@@ -12,20 +12,27 @@
 #
 # Environment this script assumes (adjust paths for other hosts):
 #   - repos cloned under ~/octos-deploy/{octos-dora-bridge,nav-base-dora-node}
-#   - bridge venv at octos-dora-bridge/bridge/.venv with: this bridge (editable),
-#     nav-base-dora-node (editable), dora-rs==1.0.1, matplotlib (tkinter present)
-#   - matching dora 1.0.1 CLI on PATH (from the dora_rs_cli wheel in that venv)
+#   - bridge venv (python3.10+) at octos-dora-bridge/bridge/.venv with: this
+#     bridge (editable), nav-base-dora-node (editable), dora-rs==1.0.1,
+#     dora-rs-cli==1.0.1, matplotlib (tkinter present)
+#   - on 3.10 that pair comes from vendor/wheels; on 3.11+ from PyPI
+#   - the venv's dora CLI must be first on PATH and report 1.0.1
 #   - an X session on DISPLAY :0 the remote-desktop tool is mirroring
+#
+# The dora CLI comes from the venv (dora-rs-cli wheel), NOT from ~/.local/bin or
+# ~/.cargo/bin — the venv bin goes first on PATH below so the CLI and the python
+# binding are guaranteed to be the same 1.0.1 build. An older ~/.local/bin/dora
+# left over from the 0.4.0 setup would otherwise shadow it and fail node
+# registration with a message-format mismatch.
 #
 # Usage:  bash scripts/run-nav-viz-asus.sh    (idempotent: cleans prior run first)
 set -uo pipefail
 
 export DISPLAY=":0"
 export XAUTHORITY="$HOME/.Xauthority"
-export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-
 ROOT=$HOME/octos-deploy
 BR=$ROOT/octos-dora-bridge
+export PATH="$BR/bridge/.venv/bin:$PATH"
 # Wrapper resolves the venv only with a relative ./venv-python and the dataflow
 # living IN dataflows/ (dora sets node CWD to the dataflow file's dir).
 DRIVER_PY=$BR/bridge/.venv/bin/python

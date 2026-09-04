@@ -30,24 +30,37 @@ Supported robots (today):
 ```bash
 git clone https://github.com/dorarobotics/octos-dora-bridge.git
 cd octos-dora-bridge/bridge
-python -m venv .venv && source .venv/bin/activate
-# Install the dora 1.0.1 wheels FIRST — see "Runtime requirements" below for why
-# they cannot come from PyPI on CPython 3.10.
+python3 -m venv .venv && source .venv/bin/activate   # 3.10+
+
+# Install the matched dora 1.0.1 pair FIRST. On 3.11+ take them from PyPI:
+#     pip install "dora-rs==1.0.1" "dora-rs-cli==1.0.1"
+# On 3.10 there is no cp310 wheel on PyPI, so use the vendored pair:
 pip install           ../vendor/wheels/dora_rs-1.0.1-*.whl
 pip install --no-deps ../vendor/wheels/dora_rs_cli-1.0.1-*.whl
+
 pip install -e ".[runtime,dev,robots.agibot-a2]"
 ```
 
 ### Runtime requirements (dora versions must match)
 
-The `dora` CLI/daemon and the Python `dora-rs` package use a wire protocol
-that is **not stable across versions**. Both sides must come from the same
-release — the bridge targets **dora 1.0.1** on both sides.
+The bridge targets **dora 1.0.1** — the formal 1.0 release — on both sides.
+The `dora` CLI/daemon and the Python `dora-rs` package share a wire protocol
+that is **not stable across versions**, so both must come from the same
+release. The simplest way to guarantee that is to install the CLI **into the
+same venv** as the bridge and put that venv's `bin/` first on `PATH` — then
+`dora` and `import dora` can never drift apart.
 
-**On CPython 3.10, the 1.0.1 wheels cannot come from PyPI.** Upstream only
-publishes `cp311-abi3` aarch64 wheels for 1.0.x, so `pip install dora-rs==1.0.1`
-either fails to find a wheel or resolves to something older. Use the locally
-built cp310 wheels instead:
+On **Python 3.11+** both ship on PyPI and pip does the work:
+
+```bash
+pip install "dora-rs==1.0.1" "dora-rs-cli==1.0.1"
+```
+
+**On CPython 3.10 they cannot come from PyPI.** Upstream publishes
+`cp311-abi3` wheels only for 1.0.x and declares `requires-python >=3.11`, so pip
+either finds no wheel or quietly resolves back to an older `dora-rs` — and the
+nodes then fail the handshake. **This fleet requires 3.10**, so the matched
+cp310 pair is vendored in-tree and installed from there:
 
 ```bash
 # vendored in-tree — see vendor/wheels/README.md for provenance and rebuild steps
@@ -56,14 +69,14 @@ pip install --no-deps vendor/wheels/dora_rs_cli-1.0.1-cp310-cp310-manylinux_2_34
 ```
 
 `setup.sh` does this for you; `DORA_WHEELS` defaults to `vendor/wheels` and can be
-pointed elsewhere if you build your own.
+pointed elsewhere if you build your own. See [`DORA_1.0.md`](DORA_1.0.md) for what
+changed in 1.0.
 
 `dora-rs` is declared as the **`runtime` extra**, not a hard dependency — the bridge
 imports `dora` lazily and the tests substitute a fake node, so `pip install -e ".[dev]"`
 works (and CI stays green on x86_64) without it. Install the wheel first, then
 `pip install -e ".[runtime]"` records the 1.0.1 pin against the already-satisfied
-wheel. Installing `.[runtime]` on a machine with no vendored wheel and no PyPI
-candidate is expected to fail — that is the pin doing its job.
+wheel.
 
 Mismatched CLI/Python pairs fail at node registration with errors like
 `unknown variant 'socket_addr', expected 'Shmem' or 'Tcp'` or
@@ -73,9 +86,13 @@ Verified-compatible combinations:
 
 | `dora` CLI | Python `dora-rs` | Python | Source |
 |---|---|---|---|
-| **1.0.1** | **1.0.1** | 3.10 | locally built cp310 wheels (`build-py310.sh`) — **current target** |
+| **1.0.1** | **1.0.1** | **3.10** | vendored cp310 wheels (`vendor/wheels/`) — **current target** |
 | 1.0.1 | 1.0.1 | 3.11+ | both from PyPI (`dora-rs-cli` for the CLI) |
-| 0.2.6 (any 0.2.3–0.2.6) | 0.2.6 | 3.8+ | legacy; both from PyPI / matched releases |
+| 0.4.0 | 0.4.0 | 3.10+ | both from PyPI. Previous target; see `manual_nav_viz.md`. |
+| 0.2.6 (any 0.2.3–0.2.6) | 0.2.6 | 3.10+ | matched releases. Legacy — the 0.2.x records in `DEPLOYMENT.md` / `manual_skill.md` describe this pair. |
+
+See [`DORA_1.0.md`](DORA_1.0.md) for what changed in 1.0 and the validation
+record.
 
 > **Note on 1.0.x and background sends.** Earlier versions of this bridge could
 > not run on 0.3.x: `Node.send_output` from the HTTP thread while the dora-loop

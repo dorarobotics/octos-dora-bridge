@@ -8,6 +8,7 @@ version = "1.0.0"
 description = "SPEC-VENDOR-NODE-V1 ↔ octos HTTP bridge (dora node + FastAPI)"
 requires-python = ">=3.10"
 dependencies = [
+  # NOTE: dora-rs is deliberately NOT here — see the `runtime` extra below.
   "pyarrow>=14",
   "fastapi>=0.110",
   "uvicorn[standard]>=0.27",
@@ -48,6 +49,19 @@ addopts = "-ra"
 line-length = 100
 target-version = "py310"
 
+[tool.ruff.lint]
+# Pin the rule set this code was written against (pycodestyle errors +
+# pyflakes, ruff's historical default). ruff has since broadened its implicit
+# defaults, which turned CI red with 21 findings (UP045/RUF100/UP035/B008/I001)
+# without a single line of code changing. Widening this set is a deliberate
+# decision plus the matching fixes, not something an upstream release imposes.
+#
+# Belt and braces: `dev` also upper-bounds ruff/mypy, so a future release
+# cannot change behaviour under a pinned select either. The UP045/RUF100/UP035/
+# I001 findings above were additionally fixed in the source, so widening this
+# set later is cheap.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's parameter markers are *meant* to be called in argument defaults —
 # that is the dependency-injection API, not the mutable-default bug B008 hunts.
@@ -65,5 +79,6 @@ python_version = "3.10"
 files = ["octos_spec_bridge"]
 
 [[tool.mypy.overrides]]
+# Neither ships type stubs or a py.typed marker.
 module = ["dora", "pyarrow"]
 ignore_missing_imports = true

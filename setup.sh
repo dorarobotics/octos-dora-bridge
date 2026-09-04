@@ -9,6 +9,9 @@
 #  Python deps so `examples/run-so101-demo.sh` just works. Idempotent — re-running
 #  skips anything already present. See RUNNING_SO101.md for the full walkthrough.
 #
+#  Requires Python >= 3.10. dora-rs 1.0.x publishes cp311-abi3 wheels only, so
+#  on 3.10 the matching cp310 wheels are installed from vendor/wheels instead.
+#
 #  Env overrides:
 #      BRANCH=feat/so101   branch to check out in all three repos
 #      VENV=<parent>/venv  venv location
@@ -42,15 +45,27 @@ clone https://github.com/dorarobotics/moveit-arm-dora-node.git moveit-arm-dora-n
 # octos-dora-bridge is the repo we're already in.
 
 # --- python venv + deps ------------------------------------------------------
+# dora-rs 1.0.x publishes cp311-abi3 wheels only; on 3.10 pip silently resolves
+# back to a 0.5.x dora and the nodes then fail the wire-protocol handshake.
+# 3.10 is the floor. dora 1.0.x publishes no cp310 wheel on PyPI, which is why
+# the matching pair is vendored in-tree (vendor/wheels/) and installed from there
+# below rather than resolved from the index.
+PY_BOOTSTRAP="${PY_BOOTSTRAP:-python3}"
+if ! "$PY_BOOTSTRAP" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
+  say "ERROR: the bridge needs Python >= 3.10; '$PY_BOOTSTRAP' is $("$PY_BOOTSTRAP" -V 2>&1)."
+  say "       Re-run with e.g.  PY_BOOTSTRAP=python3.10 bash setup.sh"
+  exit 1
+fi
+
 if [ ! -d "$VENV" ]; then
   say "creating venv at $VENV…"
-  python3 -m venv "$VENV"
+  "$PY_BOOTSTRAP" -m venv "$VENV"
 fi
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
 PY="$VENV/bin/python"
 
-say "installing python deps (dora-rs runtime + mujoco + the repos)…"
+say "installing python deps (dora 1.0.1 runtime + CLI + mujoco + the repos)…"
 "$PY" -m pip install -q --upgrade pip
 # dora 1.0.1 on CPython 3.10: PyPI only ships cp311-abi3 wheels for 1.0.x, so
 # they will NOT install here. The matching aarch64/cp310 pair is vendored in-tree
@@ -95,10 +110,17 @@ if [ "$WITH_AGENT" = "1" ]; then
     || say "  NOTE: install Ollama (https://ollama.com) and run 'ollama pull qwen3:8b'"
 fi
 
-# --- dora CLI check (can't portably auto-install) ----------------------------
-if ! command -v dora >/dev/null; then
-  say "WARNING: the 'dora' CLI is not on PATH — the dora_rs_cli wheel installs it into"
-  say "    the venv's bin/; activate the venv, or add it to PATH. It must report 1.0.1."
+# --- dora CLI check ----------------------------------------------------------
+# dora-rs-cli was installed into the venv above, so $VENV/bin/dora is the matched
+# 1.0.1 pair for the venv's dora-rs. Warn if a DIFFERENT dora shadows it on PATH.
+DORA_BIN="$(command -v dora || true)"
+if [ -z "$DORA_BIN" ]; then
+  say "WARNING: no 'dora' on PATH — activate the venv ($VENV/bin/activate) or run $VENV/bin/dora"
+elif [ "$DORA_BIN" != "$VENV/bin/dora" ]; then
+  say "WARNING: 'dora' on PATH is $DORA_BIN, not the venv's $VENV/bin/dora."
+  say "         CLI and python dora-rs must BOTH be 1.0.1 — prefer the venv one:"
+  say "             export PATH=\"$VENV/bin:\$PATH\""
+  say "         (found: $("$DORA_BIN" --version 2>/dev/null || echo unknown))"
 fi
 
 cat <<DONE

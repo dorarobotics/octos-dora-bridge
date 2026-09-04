@@ -24,6 +24,11 @@
 #  Env knobs (plus the run-so101-demo.sh ones): COORD_PORT (6113), DAEMON_LISTEN_PORT (6114).
 #  HEADLESS defaults to 1 here (servers/robots are usually display-less); set HEADLESS=0 for a viewer.
 # ============================================================================
+#
+# NOTE: the dora versions referenced below (0.2.1 / 0.3.x) are the as-validated
+# record for this launcher. The repo now targets dora 1.0.1 — see DORA_1.0.md.
+# The venv-vs-system dora hazard this script guards against applies unchanged;
+# on 1.0.1 the cleanest fix is `pip install dora-rs-cli==1.0.1` INTO the venv.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
