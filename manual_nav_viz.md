@@ -50,8 +50,8 @@ bash scripts/run-nav-viz-asus.sh        # asus paths: ~/octos-deploy/...
 
 - Repos under `~/octos-deploy/{octos-dora-bridge,nav-base-dora-node}`
 - Bridge venv at `octos-dora-bridge/bridge/.venv` with: this bridge (editable),
-  `nav-base-dora-node` (editable), **`dora-rs==0.4.0`**, `matplotlib` (tkinter present)
-- **Official dora 0.4.0** CLI on PATH (here `~/.local/bin/dora`) — *not* 0.2.x
+  `nav-base-dora-node` (editable), **`dora-rs==1.0.1`**, `matplotlib` (tkinter present)
+- **Matching dora 1.0.1** CLI on PATH (from the `dora_rs_cli` wheel in that venv) — *not* 0.2.x/0.4.x
 - An X session on `DISPLAY :0` that the remote-desktop tool mirrors
 
 SSH in: `ssh demo@100.86.247.4` (passwordless).
@@ -74,7 +74,7 @@ BRIDGE_URL="http://127.0.0.1:8769"
 ## 2. Preflight checks
 
 ```bash
-dora --version                                   # expect 0.4.0
+dora --version                                   # expect 1.0.1
 ls -l "$BR/dataflows/venv-python"                # wrapper must exist + be executable
 ls "$WAYPOINTS"                                  # waypoints present
 "$BR/bridge/.venv/bin/python" - <<'PY'
@@ -83,7 +83,7 @@ print("venv OK — dora", dora.__version__)
 PY
 ```
 
-All four must pass. If `dora --version` isn't 0.4.0, fix PATH first (stock 0.2.x
+All four must pass. If `dora --version` isn't 1.0.1, fix PATH first (a stale 0.2.x
 will fail with `unknown variant 'socket_addr'` / "message format not compatible").
 
 ## 3. Write the dataflow
@@ -178,7 +178,7 @@ dora start dataflows/nav-base-viz-live.yml --attach
 ```
 
 > **Use the RELATIVE path** `dataflows/nav-base-viz-live.yml` from `$BR`. An
-> absolute path makes dora 0.4.0 pick a node CWD that breaks `./venv-python`.
+> absolute path makes dora pick a node CWD that breaks `./venv-python`.
 
 Leave this attached (it prints node logs). The matplotlib window should appear on
 `DISPLAY :0` (your RustDesk/NoMachine view). To run it in the background instead:
@@ -262,7 +262,7 @@ the common `robot.{heartbeat, estop, release_control, get_capabilities}`.
 | `…/dorarobotics-test/nav-base-viz-live.yml: No such file` | ran `run-nav-viz.sh` (epyc paths) on asus — use `run-nav-viz-asus.sh` or these manual steps |
 | `./venv-python: No such file or directory` | started the dataflow with an **absolute** path, or not from `$BR`; `cd "$BR"` and use the relative `dataflows/…` path; ensure `dataflows/venv-python` is executable |
 | matplotlib window is black / absent | check `DISPLAY=:0` and `XAUTHORITY`; confirm the remote-desktop tool mirrors `:0`; rerun's GL viewer is black on GPU-less hosts — this demo already uses matplotlib |
-| `unknown variant 'socket_addr'` / "message format not compatible" | dora version mismatch — CLI **and** venv `dora-rs` must both be 0.4.0 |
+| `unknown variant 'socket_addr'` / "message format not compatible" | dora version mismatch — CLI **and** venv `dora-rs` must both be 1.0.1 |
 | bridge `/healthz` never comes up | read `$ROOT/nav-viz-dataflow.log`; usually a node crashed on import (missing dep in the venv) or `:8769` still held by a prior run (redo step 4) |
 | two viewers / port clash | a second `dora up` spawned a second daemon — kill all daemons (step 4) and start once |
 

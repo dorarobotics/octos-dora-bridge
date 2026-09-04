@@ -64,18 +64,23 @@ curl -s http://127.0.0.1:11434/api/tags | grep qwen3:8b
 ## 2. Install the dora-rs CLI (version-matched!)
 
 The dora **CLI** and the Python **`dora-rs`** package share a wire protocol that
-is **not stable across minor versions** — both must be the same minor (use
-**0.2.6**). Mismatch → nodes fail to register (`message format ... not compatible`).
+is **not stable across versions** — both must be **1.0.1**. Mismatch → nodes fail
+to register (`message format ... not compatible`).
 
 ```bash
-# CLI (Rust) — pick ONE matching 0.2.6:
-cargo install dora-cli --locked --version 0.2.6     # or download the 0.2.6 release binary
-dora --version                                       # must report 0.2.6
+# On CPython 3.10 the CLI comes from the locally built wheel (PyPI ships only
+# cp311-abi3 for 1.0.x). This also puts `dora` on the venv PATH:
+DORA_WHEELS=${DORA_WHEELS:-$WORK/octos-dora-bridge/vendor/wheels}
+pip install --no-deps "$DORA_WHEELS"/dora_rs_cli-1.0.1-*.whl
+dora --version                                       # must report 1.0.1
+
+# On CPython 3.11+ you can take both from PyPI instead:
+#   pip install dora-rs-cli==1.0.1
 ```
 
-> The Python `dora-rs==0.2.6` is installed by pip in step 4. Keep both at 0.2.6.
-> (The bridge is written against the dora 0.2.x iteration API; 0.3.x is not
-> supported — it hits `Already borrowed` on background sends.)
+> The Python `dora-rs==1.0.1` is installed by pip in step 4. Keep both at 1.0.1.
+> (The old `Already borrowed` failure on background sends was a 0.3.x problem;
+> it is fixed in 1.0.1, where `__next__`/`__iter__`/`send_output` all take `&self`.)
 
 ---
 
@@ -119,7 +124,7 @@ pinned branches are what actually run:
 conda create -n octos-arm python=3.10 -y && conda activate octos-arm
 
 # --- the bridge (no robots extra — we install the vendor node from local below) ---
-pip install -e "$WORK/octos-dora-bridge/bridge"
+pip install -e "$WORK/octos-dora-bridge/bridge[runtime]"
 
 # --- moveit-arm vendor adapter, from the feat/nonblocking-motion checkout ---
 pip install -e "$WORK/moveit-arm-dora-node" --no-deps      # avoid its @master runtime extra
@@ -131,7 +136,9 @@ pip install -e "$WORK/dora-moveit2/dora-mujoco"            # the MuJoCo sim node
 pip install -e "$WORK/dora-moveit2/examples/move_group_demo"   # planner/ik/exec/scene nodes + ur5e config
 
 # --- pin matched dora-rs + sim/agent deps ---
-pip install "dora-rs==0.2.6" mujoco numpy openai
+# 1.0.1 node wheel must match the CLI installed in step 2.
+pip install "$DORA_WHEELS"/dora_rs-1.0.1-*.whl
+pip install mujoco numpy openai
 
 # --- octos_py SDK: pure-python, no install — just importable via OCTOS_PY_DIR at run time ---
 ```
@@ -252,7 +259,7 @@ landed ~1 cm from target.
 
 | Symptom | Cause / fix |
 |---|---|
-| Nodes fail to register; `message format vX not compatible` | dora CLI vs python `dora-rs` minor mismatch — make both **0.2.6**. |
+| Nodes fail to register; `message format vX not compatible` | dora CLI vs python `dora-rs` version mismatch — make both **1.0.1**. |
 | `address already in use ('127.0.0.1', 8768)`; bridge exits code 1; agent gets "connection refused" | A **stale bridge** holds the port (often a prior run not torn down). `fuser -k 8768/tcp 8779/tcp` before booting. The launcher does this. |
 | `cannot connect to coordinator` / `WS session closed`; bridge **crash-loops** (re-binds every ~30s) | **Wedged dora daemon** carrying leftover dataflows. Hard reset: `dora destroy; pkill -9 -f "dora-coordinator|dora-daemon|octos_spec_bridge|dora_mujoco|ball_state"; fuser -k 8768/tcp 8779/tcp 6012/tcp 6013/tcp`, then `dora up`. Never run two dataflows at once. |
 | Arm moves but never tracks targets / arm reads gripper joints as arm | `dora-moveit2` not on `feat/injectable-node` (missing `ARM_QPOS_START=7`). Check out the branch. |
@@ -268,7 +275,7 @@ landed ~1 cm from target.
 
 | Component | Version / source |
 |---|---|
-| dora CLI + `dora-rs` (py) | 0.2.6 (matched) |
+| dora CLI + `dora-rs` (py) | 1.0.1 (matched; cp310 wheels from `dora-10.01-cp310/build-py310.sh`) |
 | Python | 3.10 |
 | LLM | Ollama `qwen3:8b` (OpenAI-compat at :11434/v1) |
 | `octos-dora-bridge` | dorarobotics/octos-dora-bridge @ main |

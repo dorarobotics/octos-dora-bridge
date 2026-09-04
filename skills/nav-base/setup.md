@@ -26,7 +26,7 @@ fake_localization + fake_planner   (sim)      ──►  optional Rerun viewer
    └─ or dora-nav real binaries (hardware)
 ```
 
-> This is the **bridge + skill + viz** quick start. For the deep dora-0.2.1 mechanics and
+> This is the **bridge + skill + viz** quick start. For the deep dora-1.0.1 mechanics and
 > the hardware swap, see `nav-base-dora-node/deploy.md` and this repo's `DEPLOYMENT.md`.
 
 ---
@@ -41,7 +41,7 @@ fake_localization + fake_planner   (sim)      ──►  optional Rerun viewer
 | Skill | `skills/nav-base/SKILL.md` (tools auto-discovered from the advert) | same |
 
 Unlike aka00 (pure HTTP, runs anywhere), nav-base runs through a **dora dataflow**, so it
-needs the **dora 0.2.1 Linux stack** — realistically Ubuntu 22.04/24.04 or epyc, not a Mac.
+needs the **dora 1.0.1 Linux stack** — realistically Ubuntu 22.04/24.04 or epyc, not a Mac.
 
 ---
 
@@ -51,7 +51,7 @@ needs the **dora 0.2.1 Linux stack** — realistically Ubuntu 22.04/24.04 or epy
 |---|---|
 | OS | Linux x86_64/ARM64 (Ubuntu 22.04/24.04 validated) |
 | Python | 3.10–3.12 (`venv` or conda) |
-| **dora 0.2.1** | CLI **and** python `dora-rs` must both be `0.2.1`, CLI built with `--attach` |
+| **dora 1.0.1** | CLI **and** python `dora-rs` must both be `1.0.1`. On CPython 3.10 use the locally built cp310 wheels — PyPI ships only `cp311-abi3` for 1.0.x |
 | **octos** CLI | the agent OS (`octos serve` / `octos chat`) |
 | LLM backend | `ANTHROPIC_API_KEY` or local Ollama |
 | Display + `rerun-sdk` | **only for §6 visualization** |
@@ -78,20 +78,25 @@ git clone https://github.com/dorarobotics/octos-dora-bridge.git
 python3 -m venv venv && . venv/bin/activate
 pip install --upgrade pip
 
-# dora python runtime pinned to 0.2.1 FIRST (must match the CLI), then the bridge +
+# dora python runtime pinned to 1.0.1 FIRST (must match the CLI), then the bridge +
 # nav-base node via the extra (pulls nav-base-dora-node from git).
-pip install "dora-rs==0.2.1" pyarrow numpy
-pip install -e "octos-dora-bridge/bridge[robots.nav-base]"
+# vendored in-tree; see octos-dora-bridge/vendor/wheels/README.md
+DORA_WHEELS=${DORA_WHEELS:-octos-dora-bridge/vendor/wheels}
+pip install           "$DORA_WHEELS"/dora_rs-1.0.1-*.whl
+pip install --no-deps "$DORA_WHEELS"/dora_rs_cli-1.0.1-*.whl
+pip install pyarrow numpy
+pip install -e "octos-dora-bridge/bridge[runtime,robots.nav-base]"
 
 # For §6 visualization only:
 pip install rerun-sdk
 ```
 
-Put the **0.2.1 `dora` CLI** on `PATH` (`dora --version` → `dora-cli 0.2.1`).
+The `dora_rs_cli` wheel installed above puts the **1.0.1 `dora` CLI** in the venv's `bin`;
+ensure it is on `PATH` (`dora --version` → `dora-cli 1.0.1`).
 
 ---
 
-## 4. The dora-0.2.1 env fixes (one-time)
+## 4. The dora-1.0.1 env fixes (one-time)
 
 A dora dataflow on a multi-NIC box needs two fixes (the third, `move_group` PYTHONPATH, is
 arm-only and **not** needed for nav):
@@ -119,7 +124,7 @@ octos skills list        # -> nav-base + its verbs
 
 ```bash
 cd ~/octos-deploy/octos-dora-bridge
-export PATH=/opt/dora/bin:$PATH                 # 0.2.1 CLI
+export PATH="$PWD/../venv/bin:$PATH"            # venv dora 1.0.1 CLI
 export NAV_FAKE_MAP=1                            # satisfies the SKILL.md preflight (see note)
 dora up && dora start dataflows/nav-base-bridge.yaml --attach
 curl -fsS http://127.0.0.1:8769/healthz         # -> ok
@@ -235,7 +240,7 @@ Milestone B.
 
 | Symptom | Fix |
 |---|---|
-| nodes die: `message format v0.6.0 not compatible with v0.2.1` | CLI and python `dora-rs` aren't both 0.2.1, or `venv-python` resolved to the base interpreter (it must be a wrapper script). |
+| nodes die: `message format vX not compatible with vY` | CLI and python `dora-rs` aren't both 1.0.1, or `venv-python` resolved to the base interpreter (it must be a wrapper script). |
 | `PoisonError` in a node on startup | `ZENOH_CONFIG` scouting-off not set on a multi-NIC box (§4). |
 | `preflight` fails | provide `load_path.yml` (copy `examples/waypoints.yaml`) or set `NAV_FAKE_MAP=1`. |
 | Rerun viewer never opens | not on a display host — set `DISPLAY=:0` inside a desktop session; confirm `rerun-sdk` is installed. |
@@ -248,5 +253,5 @@ Milestone B.
 
 aka00 talks plain HTTP to its board — pure-Python, runs anywhere, fake = a 40-line server.
 nav-base runs a **dora dataflow** (vendor node + planner/localization + bridge), so it
-needs the version-pinned dora-0.2.1 Linux stack. The payoff: it rides the same
+needs the version-pinned dora-1.0.1 Linux stack. The payoff: it rides the same
 SPEC-VENDOR-NODE-V1 bridge as every other robot, and gets the Rerun visualization for free.

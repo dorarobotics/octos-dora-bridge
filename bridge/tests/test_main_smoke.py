@@ -23,7 +23,7 @@ def test_main_constructs_heartbeat_runner(monkeypatch: pytest.MonkeyPatch) -> No
     started: list[dict] = []
 
     class FakeHeartbeatRunner:
-        def __init__(self, **kwargs):  # noqa: ANN003
+        def __init__(self, **kwargs):
             self.kwargs = kwargs
 
         def start(self) -> None:

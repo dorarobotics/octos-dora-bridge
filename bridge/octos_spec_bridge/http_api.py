@@ -163,7 +163,7 @@ def create_app(
                     status_code=504,
                 )
             return JSONResponse(cmd_response_to_tool_result(response), status_code=200)
-        except Exception:  # noqa: BLE001
+        except Exception:
             dora_loop.cancel_pending(request_id)
             raise
 

@@ -11,9 +11,9 @@ next iteration. Tests capture outputs from `sent` for assertions.
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from queue import Empty, Queue
-from typing import Iterator
 
 import pyarrow as pa
 import pytest

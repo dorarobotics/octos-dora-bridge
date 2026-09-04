@@ -12,9 +12,11 @@
 #
 # Environment this script assumes (adjust paths for other hosts):
 #   - repos cloned under ~/octos-deploy/{octos-dora-bridge,nav-base-dora-node}
-#   - bridge venv (python3.11+) at octos-dora-bridge/bridge/.venv with: this
+#   - bridge venv (python3.10+) at octos-dora-bridge/bridge/.venv with: this
 #     bridge (editable), nav-base-dora-node (editable), dora-rs==1.0.1,
 #     dora-rs-cli==1.0.1, matplotlib (tkinter present)
+#   - on 3.10 that pair comes from vendor/wheels; on 3.11+ from PyPI
+#   - the venv's dora CLI must be first on PATH and report 1.0.1
 #   - an X session on DISPLAY :0 the remote-desktop tool is mirroring
 #
 # The dora CLI comes from the venv (dora-rs-cli wheel), NOT from ~/.local/bin or

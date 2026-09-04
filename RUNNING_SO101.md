@@ -37,10 +37,11 @@ done
 ### Prerequisites
 
 - **dora 1.0.1** — the `dora` CLI on your `PATH` *and* the matching `dora-rs`
-  Python package in your venv (CLI and Python versions must match). Both ship
-  wheels on PyPI now, so `pip install "dora-rs==1.0.1" "dora-rs-cli==1.0.1"`
-  installs a matched pair into the venv; no cargo build.
-- **Python 3.11+** with `mujoco`, `numpy`, `pyarrow` (dora 1.0.x is 3.11+ only).
+  Python package in your venv (CLI and Python versions must match). On **3.11+**
+  both come from PyPI: `pip install "dora-rs==1.0.1" "dora-rs-cli==1.0.1"`. On
+  **3.10** PyPI has no cp310 wheel, so the matched pair is vendored in-tree —
+  see README.md → "Runtime requirements".
+- **Python 3.10+** with `mujoco`, `numpy`, `pyarrow`.
 - A desktop/display for the MuJoCo viewer (or run `HEADLESS=1`).
 
 ---
@@ -65,8 +66,14 @@ and the Python binding can't drift apart. If your default `python3` is older tha
 cd <parent>
 python3.11 -m venv venv && source venv/bin/activate     # 3.11+ required
 
-# dora 1.0.1 python runtime + CLI (matched pair) + core deps
-pip install "dora-rs==1.0.1" "dora-rs-cli==1.0.1" mujoco numpy pyarrow
+# dora 1.0.1 python runtime + CLI (matched pair) + core deps.
+# On Python 3.11+ take both from PyPI:
+#     pip install "dora-rs==1.0.1" "dora-rs-cli==1.0.1"
+# On Python 3.10 there is no cp310 wheel on PyPI — use the vendored pair:
+DORA_WHEELS=${DORA_WHEELS:-octos-dora-bridge/vendor/wheels}
+pip install           "$DORA_WHEELS"/dora_rs-1.0.1-*.whl
+pip install --no-deps "$DORA_WHEELS"/dora_rs_cli-1.0.1-*.whl
+pip install mujoco numpy pyarrow
 
 # install the three packages (editable) so their nodes/modules import
 pip install -e dora-moveit2/dora_moveit
@@ -76,7 +83,7 @@ pip install -e octos-dora-bridge
 
 # the `dora` CLI came from dora-rs-cli above and lives at <parent>/venv/bin/dora.
 # Make sure nothing else shadows it:
-#   which dora    # must be <parent>/venv/bin/dora
+#   which dora      # must be <parent>/venv/bin/dora
 #   dora --version  # must be 1.0.1, matching the venv's dora-rs
 ```
 

@@ -8,8 +8,9 @@ wire shape — keep them pure and well-tested.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
-from typing import Any, Optional
+# NOTE: `datetime.UTC` is 3.11+; this package supports 3.10, so use timezone.utc.
+from datetime import datetime, timezone
+from typing import Any
 
 CMD_TOKEN = "octos-bridge"
 SPEC_ENVELOPE_VERSION = "1.0"
@@ -18,7 +19,7 @@ SPEC_VERSION = "1.0.0"
 
 def _now_iso() -> str:
     """ISO-8601 UTC timestamp with millisecond precision and trailing Z."""
-    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def tool_call_to_cmd_request(
@@ -26,7 +27,7 @@ def tool_call_to_cmd_request(
     args: dict[str, Any],
     target: str,
     *,
-    request_id: Optional[str] = None,
+    request_id: str | None = None,
 ) -> dict[str, Any]:
     """Build a SPEC §7.1 cmd_request envelope from a tool call.
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import threading
 import time
 from concurrent.futures import Future
-from typing import Optional
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,13 +14,13 @@ from octos_spec_bridge.state_cache import StateCache
 class FakeDoraLoop:
     """Test double for DoraLoop — captures publishes, returns canned advert."""
 
-    def __init__(self, advert: Optional[dict] = None) -> None:
+    def __init__(self, advert: dict | None = None) -> None:
         self._advert = advert
         self.published: list[dict] = []
         self._pending: dict[str, Future] = {}
         self._cache = StateCache()
 
-    def advert(self) -> Optional[dict]:
+    def advert(self) -> dict | None:
         return self._advert
 
     def set_advert(self, advert: dict) -> None:
@@ -296,7 +295,7 @@ def test_post_get_recent_safety_events_default_since(client, fake_loop):
 def test_main_module_imports_without_dora_at_import_time():
     """__main__ must not import dora at module top — it does so lazily in main().
     This lets test environments without a dora coordinator still collect the file."""
-    import octos_spec_bridge.__main__ as m  # noqa: F401
+    import octos_spec_bridge.__main__ as m
 
     assert hasattr(m, "main")
 

@@ -4,14 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "octos-spec-bridge"
-version = "0.1.0"
+version = "1.0.0"
 description = "SPEC-VENDOR-NODE-V1 ↔ octos HTTP bridge (dora node + FastAPI)"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
-  # dora 1.0.1 is the formal release (wheels on PyPI). The CLI/daemon and this
-  # Python package share a wire protocol that is not stable across minor
-  # releases — keep `dora-rs-cli` on the SAME version. 1.0.x requires py>=3.11.
-  "dora-rs>=1.0.1,<1.1",
+  # NOTE: dora-rs is deliberately NOT here — see the `runtime` extra below.
   "pyarrow>=14",
   "fastapi>=0.110",
   "uvicorn[standard]>=0.27",
@@ -19,7 +16,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.4", "mypy>=1.10", "types-PyYAML"]
+# The dora node runtime. Deliberately NOT a hard dependency: `dora` is imported
+# lazily (octos_spec_bridge/__main__.py) and the test suite substitutes
+# FakeDoraNode (tests/conftest.py), so unit tests, ruff and mypy all run without
+# it — which is what lets CI stay green on x86_64.
+#
+# On aarch64 / CPython 3.10 this extra is NOT satisfiable from PyPI: upstream
+# publishes only cp311-abi3 aarch64 wheels for 1.0.x. Install the vendored wheel
+# first (see vendor/wheels/README.md) and the extra is then already satisfied.
+runtime = ["dora-rs==1.0.1"]
+# Upper bounds are deliberate: ruff and mypy both expand their default rule set
+# in minor releases, which silently turns a green CI red on code that has not
+# changed. Bump these on purpose, with the fixes, not by surprise.
+dev = ["pytest>=8", "ruff>=0.4,<0.17", "mypy>=1.10,<3", "types-PyYAML"]
 "robots.agibot-a2" = ["agibot-a2-dora-node @ git+https://github.com/dorarobotics/agibot-a2-dora-node@main"]
 "robots.moveit-arm" = ["moveit-arm-dora-node @ git+https://github.com/dorarobotics/moveit-arm-dora-node@main"]
 "robots.nav-base" = ["nav-base-dora-node @ git+https://github.com/dorarobotics/nav-base-dora-node@main"]
@@ -38,20 +47,35 @@ addopts = "-ra"
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py310"
 
 [tool.ruff.lint]
 # Pin the rule set this code was written against (pycodestyle errors +
-# pyflakes, ruff's historical default). `dev` installs an unpinned
-# `ruff>=0.4`, and ruff has since broadened its implicit defaults — that
-# turned CI red with 21 findings (UP045/RUF100/UP035/B008/I001) without a
-# single line of code changing. Widening this set is a deliberate decision
-# plus the matching fixes, not something an upstream release imposes.
+# pyflakes, ruff's historical default). ruff has since broadened its implicit
+# defaults, which turned CI red with 21 findings (UP045/RUF100/UP035/B008/I001)
+# without a single line of code changing. Widening this set is a deliberate
+# decision plus the matching fixes, not something an upstream release imposes.
+#
+# Belt and braces: `dev` also upper-bounds ruff/mypy, so a future release
+# cannot change behaviour under a pinned select either. The UP045/RUF100/UP035/
+# I001 findings above were additionally fixed in the source, so widening this
+# set later is cheap.
 select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's parameter markers are *meant* to be called in argument defaults —
+# that is the dependency-injection API, not the mutable-default bug B008 hunts.
+extend-immutable-calls = [
+  "fastapi.Body",
+  "fastapi.Depends",
+  "fastapi.Header",
+  "fastapi.Path",
+  "fastapi.Query",
+]
 
 [tool.mypy]
 strict = true
-python_version = "3.11"
+python_version = "3.10"
 files = ["octos_spec_bridge"]
 
 [[tool.mypy.overrides]]

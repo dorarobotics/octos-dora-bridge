@@ -11,9 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # 3.10 dropped: dora-rs 1.0.x ships cp311-abi3 wheels and declares
-        # requires-python >=3.11, so the bridge's floor is now 3.11.
-        python: ["3.11", "3.12"]
+        # 3.10 is a hard requirement for the robot fleet. dora-rs is NOT a hard
+        # dependency (it lives in the `runtime` extra), so `.[dev]` installs and
+        # the suite runs on every version here — the tests fake the dora node.
+        python: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python }}

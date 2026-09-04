@@ -69,8 +69,9 @@ mkdir -p "$WORK"
 # working dir. This MUST be a wrapper *script*, not a symlink: dora resolves symlinks
 # before exec, so a symlink to a venv's python lands on the resolved base interpreter
 # (e.g. /usr/bin/python3) and Python loses venv detection (no pyvenv.cfg next to the
-# resolved path) — it then imports the *system/user* dora (e.g. ~/.local 0.3.x), whose
-# message format mismatches the 0.2.1 CLI ("message format v0.6.0 ... expected v0.2.1").
+# resolved path) — it then imports the *system/user* dora (this Orin has a stale 0.2.6
+# installed system-wide), whose message format mismatches the 1.0.1 CLI
+# ("message format vX ... expected vY").
 # Exec-ing $PYTHON by its (unresolved) path from a script keeps venv site-packages.
 cat > "$WORK/venv-python" <<EOF
 #!/bin/bash

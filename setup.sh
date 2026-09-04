@@ -9,7 +9,8 @@
 #  Python deps so `examples/run-so101-demo.sh` just works. Idempotent — re-running
 #  skips anything already present. See RUNNING_SO101.md for the full walkthrough.
 #
-#  Requires Python >= 3.11 (dora-rs 1.0.x ships cp311-abi3 wheels only).
+#  Requires Python >= 3.10. dora-rs 1.0.x publishes cp311-abi3 wheels only, so
+#  on 3.10 the matching cp310 wheels are installed from vendor/wheels instead.
 #
 #  Env overrides:
 #      BRANCH=feat/so101   branch to check out in all three repos
@@ -46,10 +47,13 @@ clone https://github.com/dorarobotics/moveit-arm-dora-node.git moveit-arm-dora-n
 # --- python venv + deps ------------------------------------------------------
 # dora-rs 1.0.x publishes cp311-abi3 wheels only; on 3.10 pip silently resolves
 # back to a 0.5.x dora and the nodes then fail the wire-protocol handshake.
+# 3.10 is the floor. dora 1.0.x publishes no cp310 wheel on PyPI, which is why
+# the matching pair is vendored in-tree (vendor/wheels/) and installed from there
+# below rather than resolved from the index.
 PY_BOOTSTRAP="${PY_BOOTSTRAP:-python3}"
-if ! "$PY_BOOTSTRAP" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
-  say "ERROR: dora 1.0.x needs Python >= 3.11; '$PY_BOOTSTRAP' is $("$PY_BOOTSTRAP" -V 2>&1)."
-  say "       Re-run with e.g.  PY_BOOTSTRAP=python3.12 bash setup.sh"
+if ! "$PY_BOOTSTRAP" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
+  say "ERROR: the bridge needs Python >= 3.10; '$PY_BOOTSTRAP' is $("$PY_BOOTSTRAP" -V 2>&1)."
+  say "       Re-run with e.g.  PY_BOOTSTRAP=python3.10 bash setup.sh"
   exit 1
 fi
 
@@ -63,10 +67,29 @@ PY="$VENV/bin/python"
 
 say "installing python deps (dora 1.0.1 runtime + CLI + mujoco + the repos)…"
 "$PY" -m pip install -q --upgrade pip
-# dora 1.0.1 is the formal release: both the Python binding AND the CLI ship
-# wheels on PyPI, so no cargo build is needed. Install them together at the same
-# version — the CLI/daemon wire protocol is not stable across minor releases.
-"$PY" -m pip install -q "dora-rs==1.0.1" "dora-rs-cli==1.0.1" mujoco numpy pyarrow
+# dora 1.0.1 on CPython 3.10: PyPI only ships cp311-abi3 wheels for 1.0.x, so
+# they will NOT install here. The matching aarch64/cp310 pair is vendored in-tree
+# (see vendor/wheels/README.md); override DORA_WHEELS to build elsewhere.
+DORA_WHEELS="${DORA_WHEELS:-$HERE/vendor/wheels}"
+dora_node_whl="$(echo "$DORA_WHEELS"/dora_rs-1.0.1-*.whl)"
+dora_cli_whl="$(echo "$DORA_WHEELS"/dora_rs_cli-1.0.1-*.whl)"
+[ -f "$dora_node_whl" ] && [ -f "$dora_cli_whl" ] || {
+  say "ERROR: dora 1.0.1 cp310 wheels not found in '$DORA_WHEELS'."
+  say "       Build them with dora-10.01-cp310/build-py310.sh, or set DORA_WHEELS=<dir>."
+  exit 1
+}
+"$PY" -m pip install -q "$dora_node_whl"
+# --no-deps: the CLI wheel vendors the dora binary and re-declares runtime deps
+# that would otherwise fight the node wheel's pins.
+"$PY" -m pip install -q --no-deps "$dora_cli_whl"
+"$PY" -m pip install -q mujoco numpy pyarrow
+# octos 2.0.2 CLI (aarch64 wheel; `octos` is not on PyPI). Optional — skip quietly
+# on platforms the vendored wheel does not match.
+octos_whl="$(echo "$DORA_WHEELS"/octos-2.0.2-*.whl)"
+if [ -f "$octos_whl" ]; then
+  "$PY" -m pip install -q "$octos_whl" \
+    || say "  note: vendored octos wheel not installable here (wrong arch?) — skipping"
+fi
 # Editable installs — layouts vary slightly; install what exists, warn otherwise.
 for pkg in "$PARENT/dora-moveit2/dora_moveit" "$PARENT/dora-moveit2/dora-mujoco" \
            "$PARENT/moveit-arm-dora-node" "$HERE"; do
