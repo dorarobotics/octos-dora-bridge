@@ -117,7 +117,7 @@ pinned branches are what actually run:
 conda create -n octos-arm python=3.10 -y && conda activate octos-arm
 
 # --- the bridge (no robots extra — we install the vendor node from local below) ---
-pip install -e "$WORK/octos-dora-bridge/bridge"
+pip install -e "$WORK/octos-dora-bridge/bridge[runtime]"
 
 # --- moveit-arm vendor adapter, from the feat/nonblocking-motion checkout ---
 pip install -e "$WORK/moveit-arm-dora-node" --no-deps      # avoid its @master runtime extra

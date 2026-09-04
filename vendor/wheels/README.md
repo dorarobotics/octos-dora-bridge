@@ -38,6 +38,12 @@ pip install           vendor/wheels/octos-2.0.2-*.whl          # puts the `octos
 The dora **CLI and Python package must be the same version** (1.0.1) or nodes die at
 registration with `message format vX is not compatible with expected vY`.
 
+Install the wheels *before* the bridge. `dora-rs` is declared as the bridge's
+**`runtime` extra** rather than a hard dependency (it is imported lazily and faked in
+tests), so `pip install -e "bridge[dev]"` works without dora — which keeps CI green on
+x86_64, where these aarch64 wheels cannot be used. `pip install -e "bridge[runtime]"`
+then records the 1.0.1 pin against the already-installed wheel.
+
 ## Rebuilding
 
 ```bash

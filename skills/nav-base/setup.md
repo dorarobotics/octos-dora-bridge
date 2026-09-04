@@ -78,7 +78,7 @@ DORA_WHEELS=${DORA_WHEELS:-octos-dora-bridge/vendor/wheels}
 pip install           "$DORA_WHEELS"/dora_rs-1.0.1-*.whl
 pip install --no-deps "$DORA_WHEELS"/dora_rs_cli-1.0.1-*.whl
 pip install pyarrow numpy
-pip install -e "octos-dora-bridge/bridge[robots.nav-base]"
+pip install -e "octos-dora-bridge/bridge[runtime,robots.nav-base]"
 
 # For §6 visualization only:
 pip install rerun-sdk

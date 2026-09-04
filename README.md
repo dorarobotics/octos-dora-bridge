@@ -35,7 +35,7 @@ python -m venv .venv && source .venv/bin/activate
 # they cannot come from PyPI on CPython 3.10.
 pip install           ../vendor/wheels/dora_rs-1.0.1-*.whl
 pip install --no-deps ../vendor/wheels/dora_rs_cli-1.0.1-*.whl
-pip install -e ".[dev,robots.agibot-a2]"
+pip install -e ".[runtime,dev,robots.agibot-a2]"
 ```
 
 ### Runtime requirements (dora versions must match)
@@ -57,6 +57,13 @@ pip install --no-deps vendor/wheels/dora_rs_cli-1.0.1-cp310-cp310-manylinux_2_34
 
 `setup.sh` does this for you; `DORA_WHEELS` defaults to `vendor/wheels` and can be
 pointed elsewhere if you build your own.
+
+`dora-rs` is declared as the **`runtime` extra**, not a hard dependency — the bridge
+imports `dora` lazily and the tests substitute a fake node, so `pip install -e ".[dev]"`
+works (and CI stays green on x86_64) without it. Install the wheel first, then
+`pip install -e ".[runtime]"` records the 1.0.1 pin against the already-satisfied
+wheel. Installing `.[runtime]` on a machine with no vendored wheel and no PyPI
+candidate is expected to fail — that is the pin doing its job.
 
 Mismatched CLI/Python pairs fail at node registration with errors like
 `unknown variant 'socket_addr', expected 'Shmem' or 'Tcp'` or

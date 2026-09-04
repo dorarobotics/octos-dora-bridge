@@ -8,7 +8,6 @@ version = "0.1.0"
 description = "SPEC-VENDOR-NODE-V1 ↔ octos HTTP bridge (dora node + FastAPI)"
 requires-python = ">=3.10"
 dependencies = [
-  "dora-rs==1.0.1",
   "pyarrow>=14",
   "fastapi>=0.110",
   "uvicorn[standard]>=0.27",
@@ -16,6 +15,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The dora node runtime. Deliberately NOT a hard dependency: `dora` is imported
+# lazily (octos_spec_bridge/__main__.py) and the test suite substitutes
+# FakeDoraNode (tests/conftest.py), so unit tests, ruff and mypy all run without
+# it — which is what lets CI stay green on x86_64.
+#
+# On aarch64 / CPython 3.10 this extra is NOT satisfiable from PyPI: upstream
+# publishes only cp311-abi3 aarch64 wheels for 1.0.x. Install the vendored wheel
+# first (see vendor/wheels/README.md) and the extra is then already satisfied.
+runtime = ["dora-rs==1.0.1"]
 dev = ["pytest>=8", "ruff>=0.4", "mypy>=1.10", "types-PyYAML"]
 "robots.agibot-a2" = ["agibot-a2-dora-node @ git+https://github.com/dorarobotics/agibot-a2-dora-node@main"]
 "robots.moveit-arm" = ["moveit-arm-dora-node @ git+https://github.com/dorarobotics/moveit-arm-dora-node@main"]
