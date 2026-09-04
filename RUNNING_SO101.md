@@ -36,8 +36,10 @@ done
 
 ### Prerequisites
 
-- **dora-rs 0.3.x** — the `dora` CLI on your `PATH` *and* the matching `dora-rs`
-  Python package in your venv (CLI and Python versions must match).
+- **dora-rs 1.0.1** — the `dora` CLI on your `PATH` *and* the matching `dora-rs`
+  Python package in your venv (CLI and Python versions must match). On CPython
+  3.10 both must come from the locally built cp310 wheels — PyPI only ships
+  `cp311-abi3` for 1.0.x. See README.md → "Runtime requirements".
 - **Python 3.10+** with `mujoco`, `numpy`, `pyarrow`.
 - A desktop/display for the MuJoCo viewer (or run `HEADLESS=1`).
 
@@ -61,8 +63,13 @@ run command at the end. It can't install the `dora` CLI for you — see the note
 cd <parent>
 python3 -m venv venv && source venv/bin/activate
 
-# dora-rs python runtime + core deps
-pip install "dora-rs==0.3.*" mujoco numpy pyarrow
+# dora-rs python runtime (1.0.1) + core deps.
+# On CPython 3.10 the 1.0.1 wheels are NOT on PyPI — use the locally built pair.
+# vendored in-tree; see octos-dora-bridge/vendor/wheels/README.md
+DORA_WHEELS=${DORA_WHEELS:-octos-dora-bridge/vendor/wheels}
+pip install           "$DORA_WHEELS"/dora_rs-1.0.1-*.whl
+pip install --no-deps "$DORA_WHEELS"/dora_rs_cli-1.0.1-*.whl
+pip install mujoco numpy pyarrow
 
 # install the three packages (editable) so their nodes/modules import
 pip install -e dora-moveit2/dora_moveit
@@ -70,8 +77,9 @@ pip install -e dora-moveit2/dora-mujoco
 pip install -e moveit-arm-dora-node
 pip install -e octos-dora-bridge
 
-# install the dora CLI (if not already present) — see https://dora-rs.ai
-#   cargo install dora-cli --locked       # or download a release binary
+# the dora CLI comes from the dora_rs_cli wheel installed above (dora --version
+# must report 1.0.1). Only if you need to build it yourself:
+#   cargo install dora-cli --locked --version 1.0.1
 ```
 
 > Exact package layout may differ slightly per repo — the rule is simply that the

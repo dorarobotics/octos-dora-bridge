@@ -13,8 +13,8 @@
 # Environment this script assumes (adjust paths for other hosts):
 #   - repos cloned under ~/octos-deploy/{octos-dora-bridge,nav-base-dora-node}
 #   - bridge venv at octos-dora-bridge/bridge/.venv with: this bridge (editable),
-#     nav-base-dora-node (editable), dora-rs==0.4.0, matplotlib (tkinter present)
-#   - official dora 0.4.0 CLI on PATH (here ~/.local/bin/dora)
+#     nav-base-dora-node (editable), dora-rs==1.0.1, matplotlib (tkinter present)
+#   - matching dora 1.0.1 CLI on PATH (from the dora_rs_cli wheel in that venv)
 #   - an X session on DISPLAY :0 the remote-desktop tool is mirroring
 #
 # Usage:  bash scripts/run-nav-viz-asus.sh    (idempotent: cleans prior run first)
@@ -112,7 +112,7 @@ sleep 8
 
 echo "dora start (attached)" >> "$STATE"
 # Use the RELATIVE dataflow path from $BR (mirrors the working headless run); an
-# absolute path makes dora 0.4.0 pick a node CWD that breaks ./venv-python.
+# absolute path makes dora pick a node CWD that breaks ./venv-python.
 dora start dataflows/nav-base-viz-live.yml --attach > "$LOG" 2>&1 &
 DORA_PID=$!
 

@@ -52,7 +52,29 @@ PY="$VENV/bin/python"
 
 say "installing python deps (dora-rs runtime + mujoco + the repos)…"
 "$PY" -m pip install -q --upgrade pip
-"$PY" -m pip install -q "dora-rs==0.3.*" mujoco numpy pyarrow
+# dora 1.0.1 on CPython 3.10: PyPI only ships cp311-abi3 wheels for 1.0.x, so
+# they will NOT install here. The matching aarch64/cp310 pair is vendored in-tree
+# (see vendor/wheels/README.md); override DORA_WHEELS to build elsewhere.
+DORA_WHEELS="${DORA_WHEELS:-$HERE/vendor/wheels}"
+dora_node_whl="$(echo "$DORA_WHEELS"/dora_rs-1.0.1-*.whl)"
+dora_cli_whl="$(echo "$DORA_WHEELS"/dora_rs_cli-1.0.1-*.whl)"
+[ -f "$dora_node_whl" ] && [ -f "$dora_cli_whl" ] || {
+  say "ERROR: dora 1.0.1 cp310 wheels not found in '$DORA_WHEELS'."
+  say "       Build them with dora-10.01-cp310/build-py310.sh, or set DORA_WHEELS=<dir>."
+  exit 1
+}
+"$PY" -m pip install -q "$dora_node_whl"
+# --no-deps: the CLI wheel vendors the dora binary and re-declares runtime deps
+# that would otherwise fight the node wheel's pins.
+"$PY" -m pip install -q --no-deps "$dora_cli_whl"
+"$PY" -m pip install -q mujoco numpy pyarrow
+# octos 2.0.2 CLI (aarch64 wheel; `octos` is not on PyPI). Optional — skip quietly
+# on platforms the vendored wheel does not match.
+octos_whl="$(echo "$DORA_WHEELS"/octos-2.0.2-*.whl)"
+if [ -f "$octos_whl" ]; then
+  "$PY" -m pip install -q "$octos_whl" \
+    || say "  note: vendored octos wheel not installable here (wrong arch?) — skipping"
+fi
 # Editable installs — layouts vary slightly; install what exists, warn otherwise.
 for pkg in "$PARENT/dora-moveit2/dora_moveit" "$PARENT/dora-moveit2/dora-mujoco" \
            "$PARENT/moveit-arm-dora-node" "$HERE"; do
@@ -75,8 +97,8 @@ fi
 
 # --- dora CLI check (can't portably auto-install) ----------------------------
 if ! command -v dora >/dev/null; then
-  say "WARNING: the 'dora' CLI is not on PATH. Install it (must match dora-rs 0.3.x):"
-  say "    cargo install dora-cli --locked    # or grab a release from https://github.com/dora-rs/dora/releases"
+  say "WARNING: the 'dora' CLI is not on PATH — the dora_rs_cli wheel installs it into"
+  say "    the venv's bin/; activate the venv, or add it to PATH. It must report 1.0.1."
 fi
 
 cat <<DONE

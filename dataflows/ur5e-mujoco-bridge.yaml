@@ -14,7 +14,7 @@
 #
 # Headless: MuJoCo runs main.py with MUJOCO_HEADLESS=1 (no viewer/display needed).
 # IK uses the pure-numpy solver (IK_SOLVER_TYPE=de) so no tracikpy is required.
-# dora CLI + python dora-rs must both be 0.2.x (epyc has a matched 0.2.1 pair).
+# dora CLI + python dora-rs must both be 1.0.1 (cp310 wheels on the Orin; PyPI on 3.11+).
 
 nodes:
   - id: mujoco_sim

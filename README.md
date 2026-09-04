@@ -31,6 +31,10 @@ Supported robots (today):
 git clone https://github.com/dorarobotics/octos-dora-bridge.git
 cd octos-dora-bridge/bridge
 python -m venv .venv && source .venv/bin/activate
+# Install the dora 1.0.1 wheels FIRST — see "Runtime requirements" below for why
+# they cannot come from PyPI on CPython 3.10.
+pip install           ../vendor/wheels/dora_rs-1.0.1-*.whl
+pip install --no-deps ../vendor/wheels/dora_rs_cli-1.0.1-*.whl
 pip install -e ".[dev,robots.agibot-a2]"
 ```
 
@@ -38,28 +42,43 @@ pip install -e ".[dev,robots.agibot-a2]"
 
 The `dora` CLI/daemon and the Python `dora-rs` package use a wire protocol
 that is **not stable across versions**. Both sides must come from the same
-minor release — e.g. CLI 0.2.x talks only to Python `dora-rs` 0.2.x.
+release — the bridge targets **dora 1.0.1** on both sides.
 
-PyPI no longer ships `dora-rs==0.2.1`; the lowest available 0.2.x Python
-package is `dora-rs==0.2.3`. If your local `dora` CLI is older than that,
-`pip install` from PyPI will give you an incompatible Python package and
-nodes will fail to register with errors like
+**On CPython 3.10, the 1.0.1 wheels cannot come from PyPI.** Upstream only
+publishes `cp311-abi3` aarch64 wheels for 1.0.x, so `pip install dora-rs==1.0.1`
+either fails to find a wheel or resolves to something older. Use the locally
+built cp310 wheels instead:
+
+```bash
+# vendored in-tree — see vendor/wheels/README.md for provenance and rebuild steps
+pip install           vendor/wheels/dora_rs-1.0.1-cp310-cp310-manylinux_2_34_aarch64.whl
+pip install --no-deps vendor/wheels/dora_rs_cli-1.0.1-cp310-cp310-manylinux_2_34_aarch64.whl
+```
+
+`setup.sh` does this for you; `DORA_WHEELS` defaults to `vendor/wheels` and can be
+pointed elsewhere if you build your own.
+
+Mismatched CLI/Python pairs fail at node registration with errors like
 `unknown variant 'socket_addr', expected 'Shmem' or 'Tcp'` or
-`message format v0.5.0 is not compatible with expected message format v0.2.1`.
+`message format vX is not compatible with expected message format vY`.
 
 Verified-compatible combinations:
 
-| `dora` CLI | Python `dora-rs` | Source |
-|---|---|---|
-| 0.2.6 (any 0.2.3–0.2.6) | 0.2.6 | both from PyPI / matched releases |
-| 0.3.x | 0.3.x | both from PyPI (`dora-rs-cli` for the CLI). **Note:** the current bridge is written against the 0.2.x iteration API; running on 0.3.x will hit `RuntimeError: Already borrowed` from background-thread sends. See follow-up in the design doc. |
+| `dora` CLI | Python `dora-rs` | Python | Source |
+|---|---|---|---|
+| **1.0.1** | **1.0.1** | 3.10 | locally built cp310 wheels (`build-py310.sh`) — **current target** |
+| 1.0.1 | 1.0.1 | 3.11+ | both from PyPI (`dora-rs-cli` for the CLI) |
+| 0.2.6 (any 0.2.3–0.2.6) | 0.2.6 | 3.8+ | legacy; both from PyPI / matched releases |
 
-Recommended for MVP: align both to `0.2.6` from PyPI.
+> **Note on 1.0.x and background sends.** Earlier versions of this bridge could
+> not run on 0.3.x: `Node.send_output` from the HTTP thread while the dora-loop
+> thread iterated raised `RuntimeError: Already borrowed`. That is **fixed in
+> 1.0.1** — `__next__`, `__iter__` and `send_output` all take a shared borrow
+> (`&self`), so the two threads no longer collide in pyo3's borrow checker.
+> `Node` has no `close()`; `dora_loop.stop()` already guards for that.
 
 ## Known runtime gaps (MVP)
 
-- **dora 0.3.x compatibility** — bridge background sends use the 0.2.x API
-  pattern that hit `Already borrowed` on 0.3.x. Filed as v0.2.0 work.
 - **`BRIDGE_DOWN` error code** — when the dora-loop thread dies, in-flight
   calls hit `BRIDGE_TIMEOUT` (30s) instead of the spec's intended fast-fail.
 - **Background heartbeat timer** — for adverts with non-zero

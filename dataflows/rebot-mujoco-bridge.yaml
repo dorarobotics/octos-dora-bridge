@@ -14,7 +14,7 @@
 # ${DORA_MOVEIT2} is the dora-moveit2 checkout. dora can't interpolate env in
 # `path:`/`args:`, so the live run on epyc uses a copy of this file placed inside
 # the dora-moveit2 example dir (where the node scripts' relative paths resolve).
-# dora CLI + python dora-rs must both be 0.2.x.
+# dora CLI + python dora-rs must both be 1.0.1.
 
 nodes:
   - id: mujoco_sim

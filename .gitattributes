@@ -1,0 +1,2 @@
+# Vendored release wheels — binary, never diff or merge.
+vendor/wheels/*.whl binary -diff -merge

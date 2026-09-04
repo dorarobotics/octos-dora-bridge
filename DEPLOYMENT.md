@@ -60,10 +60,15 @@ git -C octos-dora-bridge checkout main
 
 python3 -m venv venv && . venv/bin/activate     # clean venv; do NOT use ~/.local's dora
 pip install --upgrade pip
-# Pin the dora python runtime to 0.2.1 FIRST (matches the CLI; stock PyPI wheel,
-# manylinux_2_34 → needs glibc >= 2.34). Then install the repos with --no-deps so
-# nothing silently upgrades dora-rs (dora-mujoco's pyproject pins dora-rs>=0.3.9).
-pip install "dora-rs==0.2.1" pyarrow mujoco numpy
+# Pin the dora python runtime to 1.0.1 FIRST (must match the CLI). On CPython 3.10
+# these are NOT on PyPI — upstream ships only cp311-abi3 aarch64 wheels for 1.0.x —
+# so use the locally built cp310 pair (dora-10.01-cp310/build-py310.sh, manylinux_2_34
+# → needs glibc >= 2.34). Then install the repos with --no-deps so nothing silently
+# changes dora-rs (dora-mujoco's pyproject pins dora-rs>=0.3.9).
+DORA_WHEELS=${DORA_WHEELS:-octos-dora-bridge/vendor/wheels}
+pip install           "$DORA_WHEELS"/dora_rs-1.0.1-*.whl
+pip install --no-deps "$DORA_WHEELS"/dora_rs_cli-1.0.1-*.whl
+pip install pyarrow mujoco numpy
 pip install --no-deps \
     -e dora-moveit2/dora_moveit -e dora-moveit2/dora-mujoco \
     -e dora-moveit2/examples/move_group_demo \
@@ -75,22 +80,21 @@ python -c "import dora,pyarrow,mujoco,dora_moveit,dora_mujoco; print('venv ok, d
 
 The reference dataflow (`dataflows/so101-mujoco-bridge.yaml`) uses dora's **flat node
 format** (`path:`/`args:`/`inputs:`) and `dora start --attach`. Both the **CLI** and the
-**python `dora-rs`** must be **0.2.1**, and the CLI must be the build that supports
-`--attach` (stock 0.2.1 CLI lacks it). Three concrete requirements:
+**python `dora-rs`** must be **1.0.1**. Three concrete requirements:
 
-1. **CLI 0.2.1 with `--attach`.** On an FF robot box this already exists at
-   `/opt/dora/bin/dora`. Otherwise copy the known-good binary from a working box (it's a
-   self-contained ELF; epyc and the reference box are both glibc-2.35 x86_64, so the
-   binary is portable) and put it on `PATH`. `dora --version` → `dora-cli 0.2.1`.
-2. **python `dora-rs==0.2.1`** in the venv (stock PyPI wheel — installed in §2). The CLI
-   and python message formats must match, or nodes die with
-   `message format v0.6.0 is not compatible with expected message format v0.2.1`.
+1. **CLI 1.0.1.** Installed by the `dora_rs_cli-1.0.1-*.whl` in §2, which puts `dora`
+   on the venv's `PATH`. `dora --version` → `dora-cli 1.0.1`. (`--attach` is standard
+   in 1.0.x — the old 0.2.1 "needs a patched CLI" caveat no longer applies.)
+2. **python `dora-rs==1.0.1`** in the venv, from the locally built cp310 wheel
+   (installed in §2). The CLI and python message formats must match, or nodes die with
+   `message format vX is not compatible with expected message format vY`.
 3. The launchers handle the **three environment fixes** automatically; if you ever run
    the dataflow by hand, replicate them:
    - **`venv-python` must be a wrapper *script*, not a symlink.** dora resolves symlinks
      before `exec`, so a symlink to `venv/bin/python` lands on the resolved base
      interpreter (`/usr/bin/python3`), Python loses venv detection, and nodes import a
-     **system/user dora 0.3.x** instead of the venv's 0.2.1 → the v0.6.0 mismatch above.
+     **system/user dora** (this Orin has a stale 0.2.6 installed system-wide) instead of
+     the venv's 1.0.1 → the message-format mismatch above.
      Use `#!/bin/bash\nexec "<venv>/bin/python" "$@"`.
    - **`ZENOH_CONFIG`** disabling zenoh multicast+gossip scouting, pinned to loopback.
      dora uses zenoh only for cross-*machine* routing (node↔daemon is TCP), so a
@@ -137,11 +141,12 @@ ARM_BRIDGE_URL=http://127.0.0.1:8768   BALL_URL=http://127.0.0.1:8779/ball
 ### 4a. Run the demo directly — pick the launcher for your box
 
 Both launchers apply the three env fixes from §2 automatically. Point `PYTHON` at the
-0.2.1 venv and put the 0.2.1 `dora` on `PATH`:
+1.0.1 venv; the `dora_rs_cli` wheel already puts the matching 1.0.1 `dora` in that
+venv's `bin`, so activating the venv is normally enough:
 
 ```bash
-export PATH=/opt/dora/bin:$PATH          # or wherever the 0.2.1 CLI lives
 export PYTHON=~/octos-deploy/venv/bin/python
+export PATH="$(dirname "$PYTHON"):$PATH"   # venv's dora 1.0.1 ahead of any system CLI
 cd ~/octos-deploy/octos-dora-bridge
 ```
 
@@ -178,13 +183,13 @@ isolated runner so octos doesn't disturb the existing daemon.)
 | Component | Status |
 |---|---|
 | octos (built from source) | ✅ runs (glibc-native) |
-| mujoco venv + 4 repos (dora-rs 0.2.1) | ✅ install + import |
+| mujoco venv + 4 repos (dora-rs 1.0.1) | ✅ install + import |
 | octos skill (`manifest.json`+`main`) | ✅ proven end-to-end (places ~0.9 cm) |
-| dora dataflow runtime | ✅ runs — CLI 0.2.1 + venv dora-rs 0.2.1 + the three §2 fixes |
+| dora dataflow runtime | ✅ runs — CLI 1.0.1 + venv dora-rs 1.0.1 + the three §2 fixes |
 | isolated run on a live-robot box | ✅ demo ran; FF `ff-a2-bridge` daemon left untouched |
 
 **Bottom line:** the whole pipeline deploys to a fresh Ubuntu 22.04 box and runs
-end-to-end. The dora runtime is **not** a blocker — it just needs the matched **0.2.1**
+end-to-end. The dora runtime is **not** a blocker — it just needs the matched **1.0.1**
 CLI + python pair plus the three environment fixes (venv-python wrapper, `ZENOH_CONFIG`
 scouting-off, `PYTHONPATH` for `move_group_demo`), all baked into the launchers. On a
 box already running a dora daemon, use `run-so101-isolated.sh` to coexist safely.

@@ -10,15 +10,15 @@
 #  It NEVER runs `dora up`, `dora destroy`, or pkills any daemon, and never touches the
 #  default ports — so a co-resident robot dataflow keeps running untouched.
 #
-#  It also applies the three fixes needed beyond "dora 0.2.1":
+#  It also applies the three fixes needed beyond "dora 1.0.1":
 #    1. venv-python WRAPPER SCRIPT (not a symlink) — preserves venv detection so nodes
-#       import the venv's dora-rs 0.2.1 (not a system/user 0.3.x → message-format clash).
+#       import the venv's dora-rs 1.0.1 (not a system/user 0.2.6 → message-format clash).
 #    2. ZENOH_CONFIG disabling zenoh multicast/gossip scouting + loopback-only — stops the
 #       cross-network peer storm that otherwise panics nodes on multi-interface boxes.
 #    3. PYTHONPATH = examples/move_group_demo — so the move_group nodes import their config.
 #
 #  QUICK START:
-#      export PYTHON=/path/to/venv/bin/python    # venv with dora-rs==0.2.1 + deps + repos
+#      export PYTHON=/path/to/venv/bin/python    # venv with dora-rs==1.0.1 + deps + repos
 #      bash examples/run-so101-isolated.sh        # headless by default on a server
 #
 #  Env knobs (plus the run-so101-demo.sh ones): COORD_PORT (6113), DAEMON_LISTEN_PORT (6114).
@@ -52,13 +52,13 @@ export GRIP_DWELL="${GRIP_DWELL:-3.0}"
 die() { echo "[so101-iso] ERROR: $*" >&2; exit 1; }
 
 echo "[so101-iso] preflight…"
-command -v dora >/dev/null     || die "dora CLI not on PATH (need the 0.2.1 CLI; see DEPLOYMENT.md)"
+command -v dora >/dev/null     || die "dora CLI not on PATH (need the 1.0.1 CLI; see DEPLOYMENT.md)"
 command -v "$PYTHON" >/dev/null || die "PYTHON '$PYTHON' not found"
 [ -f "$MODEL" ]    || die "model not found: $MODEL  (set DORA_MOVEIT2)"
 [ -f "$SRC" ]      || die "dataflow not found: $SRC"
 [ -f "$MANIFEST" ] || die "manifest not found: $MANIFEST (set MOVEIT_ARM)"
 "$PYTHON" -c "import mujoco, numpy, pyarrow, dora" 2>/dev/null \
-  || die "python deps missing in '$PYTHON' (need mujoco,numpy,pyarrow,dora-rs==0.2.1 + repos)"
+  || die "python deps missing in '$PYTHON' (need mujoco,numpy,pyarrow,dora-rs==1.0.1 + repos)"
 
 mkdir -p "$WORK"
 
