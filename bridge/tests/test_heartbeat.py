@@ -9,18 +9,18 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 
 from octos_spec_bridge.heartbeat import HeartbeatRunner
 
 
 class FakeDoraLoop:
-    def __init__(self, advert: Optional[dict[str, Any]]) -> None:
+    def __init__(self, advert: dict[str, Any] | None) -> None:
         self._advert = advert
         self.published: list[dict[str, Any]] = []
         self._lock = threading.Lock()
 
-    def advert(self) -> Optional[dict[str, Any]]:
+    def advert(self) -> dict[str, Any] | None:
         return self._advert
 
     def set_advert(self, advert: dict[str, Any]) -> None:

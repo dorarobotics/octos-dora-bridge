@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 CMD_TOKEN = "octos-bridge"
 SPEC_ENVELOPE_VERSION = "1.0"
@@ -26,7 +26,7 @@ def tool_call_to_cmd_request(
     args: dict[str, Any],
     target: str,
     *,
-    request_id: Optional[str] = None,
+    request_id: str | None = None,
 ) -> dict[str, Any]:
     """Build a SPEC §7.1 cmd_request envelope from a tool call.
 

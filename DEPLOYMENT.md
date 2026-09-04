@@ -35,11 +35,23 @@ All four repos are **public** — clone without auth.
 
 ```bash
 mkdir -p ~/octos-deploy && cd ~/octos-deploy
-git clone https://github.com/dorarobotics/octos.git
-# build the CLI (produces the `octos` binary), install into ~/.octos/bin
-cd octos
-cargo install --path crates/octos-cli --root ~/.octos --force   # ~15-30 min
-~/.octos/bin/octos --version        # -> octos 0.1.0 ...
+git clone https://github.com/dorarobotics/octos-dora-bridge.git
+
+# octos 2.0.2 (official release) ships as a vendored aarch64 wheel — no Rust
+# build needed. It installs the `octos` binary into the venv's bin/.
+pip install octos-dora-bridge/vendor/wheels/octos-2.0.2-*.whl
+octos --version        # -> octos 2.0.2 (b074918a ...)
+```
+
+On a platform the vendored wheel does not cover (x86_64, musl), build from
+source instead — same v2.0.2 tag:
+
+```bash
+git clone https://github.com/dorarobotics/octos.git && cd octos
+git checkout v2.0.2
+cargo install --path crates/octos-cli --root ~/.octos --force \
+    --features "api,telegram,discord,whatsapp,feishu,twilio,wecom,wecom-bot,audio_mp3"
+~/.octos/bin/octos --version        # -> octos 2.0.2 ...
 ```
 
 Provider key (octos chat): export `ANTHROPIC_API_KEY` (the test box has it in

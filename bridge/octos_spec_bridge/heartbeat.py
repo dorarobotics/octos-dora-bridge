@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
 from octos_spec_bridge.translator import tool_call_to_cmd_request
 
@@ -25,11 +25,11 @@ logger = logging.getLogger(__name__)
 class _DoraLoopHandle(Protocol):
     """Subset of DoraLoop that heartbeat needs."""
 
-    def advert(self) -> Optional[dict[str, Any]]: ...
+    def advert(self) -> dict[str, Any] | None: ...
     def publish_cmd_request(self, envelope: dict[str, Any]) -> None: ...
 
 
-def _read_timeout_ms(advert: Optional[dict[str, Any]]) -> int:
+def _read_timeout_ms(advert: dict[str, Any] | None) -> int:
     if not advert:
         return 0
     safety = advert.get("safety") or {}
@@ -56,7 +56,7 @@ class HeartbeatRunner:
         self._robot_id = robot_id
         self._advert_poll_interval_s = advert_poll_interval_s
         self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._start_lock = threading.Lock()
 
     def start(self) -> None:
@@ -103,7 +103,7 @@ class HeartbeatRunner:
             )
             try:
                 self._loop.publish_cmd_request(envelope)
-            except Exception:  # noqa: BLE001 — keep the thread alive
+            except Exception:
                 logger.exception("heartbeat publish failed")
             if self._stop.wait(period_s):
                 return

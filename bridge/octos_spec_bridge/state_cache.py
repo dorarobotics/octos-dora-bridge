@@ -10,7 +10,7 @@ from __future__ import annotations
 import collections
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 
 DEFAULT_STALE_AFTER_S = 5.0
 DEFAULT_SAFETY_RING_SIZE = 128
@@ -25,7 +25,7 @@ class StateCache:
     ) -> None:
         self._stale_after_s = stale_after_s
         self._lock = threading.Lock()
-        self._state: Optional[dict[str, Any]] = None
+        self._state: dict[str, Any] | None = None
         self._state_ts: float = 0.0
         self._events: collections.deque[dict[str, Any]] = collections.deque(maxlen=safety_ring_size)
 

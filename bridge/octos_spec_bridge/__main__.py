@@ -32,7 +32,7 @@ def main() -> None:
 
     # Lazy imports — dora may not be installed in test envs.
     import uvicorn
-    from dora import Node  # noqa: PLC0415, type: ignore[import-untyped]
+    from dora import Node
 
     from octos_spec_bridge.dora_loop import DoraLoop
     from octos_spec_bridge.heartbeat import HeartbeatRunner

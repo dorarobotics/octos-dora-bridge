@@ -19,7 +19,7 @@ import json
 import logging
 import threading
 from concurrent.futures import Future
-from typing import Any, Optional
+from typing import Any
 
 import pyarrow as pa
 
@@ -53,11 +53,11 @@ class DoraLoop:
     def __init__(self, *, node: Any, state_cache: StateCache) -> None:
         self._node = node
         self._cache = state_cache
-        self._advert: Optional[dict[str, Any]] = None
+        self._advert: dict[str, Any] | None = None
         self._advert_lock = threading.Lock()
         self._pending: dict[str, Future[dict[str, Any]]] = {}
         self._pending_lock = threading.Lock()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._stopped = False
         self._start_lock = threading.Lock()
@@ -87,7 +87,7 @@ class DoraLoop:
                 )
             self._thread = None
 
-    def advert(self) -> Optional[dict[str, Any]]:
+    def advert(self) -> dict[str, Any] | None:
         with self._advert_lock:
             return self._advert
 
@@ -155,7 +155,7 @@ class DoraLoop:
         except (KeyError, IndexError, json.JSONDecodeError):
             logger.exception("failed to decode dora input %s", input_id)
             return
-        except Exception:  # noqa: BLE001 — defensive: don't crash the loop on bad data
+        except Exception:
             logger.exception(
                 "unexpected error decoding dora input %s, dropping message",
                 input_id,
