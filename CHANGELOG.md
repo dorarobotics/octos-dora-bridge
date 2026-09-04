@@ -2,7 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## 1.0.0 (2026-09-04)
+
+### CI & Build
+
+- Pin octos 2.0.2 + dora 1.0.1 on py3.10, vendor the wheels, release v1.0.0 ([#7](https://github.com/dorarobotics/octos-dora-bridge/pull/7)) ([edb82d2](https://github.com/dorarobotics/octos-dora-bridge/commit/edb82d2276e95a97742638cc2eddffd5273b9568))
+
+## 0.1.0 (2026-09-04)
 
 ### Bug Fixes
 
@@ -12,6 +18,10 @@ All notable changes to this project will be documented in this file.
 - Disable heartbeat watchdog in ur5e-mujoco sim dataflow ([8878ece](https://github.com/dorarobotics/octos-dora-bridge/commit/8878ece486d801787e6c48b9cf0219a6eeade563))
 - Decode joint_commands as a full float vector ([a663798](https://github.com/dorarobotics/octos-dora-bridge/commit/a6637984f4c296e6314247401133aabda76dbd8a))
 - Seed the grasp orientation from the approach pose, not HOME ([e0b2c7a](https://github.com/dorarobotics/octos-dora-bridge/commit/e0b2c7ab7256417d844731dc654e6eb8e9f492a8))
+
+### CI & Build
+
+- Pin dora 1.0.1 and add the tag-triggered release pipeline ([#6](https://github.com/dorarobotics/octos-dora-bridge/pull/6)) ([b1c407c](https://github.com/dorarobotics/octos-dora-bridge/commit/b1c407c0e90d6635e6714db1a84579e6ca4f829e))
 
 ### Documentation
 
@@ -57,8 +67,6 @@ All notable changes to this project will be documented in this file.
 - Add asus reference launcher for the visual nav-base demo ([e6ecebc](https://github.com/dorarobotics/octos-dora-bridge/commit/e6ecebca489d0ad6e6b4dda9da36c2f9310219f9))
 - Allow dora-rs 0.3/0.4 (loosen pin to <0.5) ([438d55b](https://github.com/dorarobotics/octos-dora-bridge/commit/438d55badc75218e965c4ad58312a3130f63684b))
 - Run-nav-viz.sh auto-delegates to the asus variant on the asus box ([5bdadab](https://github.com/dorarobotics/octos-dora-bridge/commit/5bdadab61b226f2526eae1fda70536138c87bd71))
-- Dora 1.0-rc.1: unpin dora-rs, add from-source build harness + validation note ([72ca355](https://github.com/dorarobotics/octos-dora-bridge/commit/72ca355a1a08ebe0787292bf9efed66a7d3541d2))
-- Dora 1.0.1: pin the formal release, drop the from-source rc.1 harness ([2754471](https://github.com/dorarobotics/octos-dora-bridge/commit/2754471c833d5be4b04fbdbb1931219252a1cc10))
 
 ### Refactoring
 
