@@ -36,9 +36,11 @@ done
 
 ### Prerequisites
 
-- **dora-rs 0.3.x** — the `dora` CLI on your `PATH` *and* the matching `dora-rs`
-  Python package in your venv (CLI and Python versions must match).
-- **Python 3.10+** with `mujoco`, `numpy`, `pyarrow`.
+- **dora 1.0.1** — the `dora` CLI on your `PATH` *and* the matching `dora-rs`
+  Python package in your venv (CLI and Python versions must match). Both ship
+  wheels on PyPI now, so `pip install "dora-rs==1.0.1" "dora-rs-cli==1.0.1"`
+  installs a matched pair into the venv; no cargo build.
+- **Python 3.11+** with `mujoco`, `numpy`, `pyarrow` (dora 1.0.x is 3.11+ only).
 - A desktop/display for the MuJoCo viewer (or run `HEADLESS=1`).
 
 ---
@@ -53,16 +55,18 @@ bash setup.sh          # clones the other two repos as siblings, makes a venv, i
 ```
 
 `setup.sh` is idempotent (re-running skips what's already there) and prints the exact
-run command at the end. It can't install the `dora` CLI for you — see the note below.
+run command at the end. It now installs the `dora` CLI into the venv too, so the CLI
+and the Python binding can't drift apart. If your default `python3` is older than
+3.11, point it at a newer one: `PY_BOOTSTRAP=python3.12 bash setup.sh`.
 
 **Manual path**, if you prefer to do it yourself:
 
 ```bash
 cd <parent>
-python3 -m venv venv && source venv/bin/activate
+python3.11 -m venv venv && source venv/bin/activate     # 3.11+ required
 
-# dora-rs python runtime + core deps
-pip install "dora-rs==0.3.*" mujoco numpy pyarrow
+# dora 1.0.1 python runtime + CLI (matched pair) + core deps
+pip install "dora-rs==1.0.1" "dora-rs-cli==1.0.1" mujoco numpy pyarrow
 
 # install the three packages (editable) so their nodes/modules import
 pip install -e dora-moveit2/dora_moveit
@@ -70,8 +74,10 @@ pip install -e dora-moveit2/dora-mujoco
 pip install -e moveit-arm-dora-node
 pip install -e octos-dora-bridge
 
-# install the dora CLI (if not already present) — see https://dora-rs.ai
-#   cargo install dora-cli --locked       # or download a release binary
+# the `dora` CLI came from dora-rs-cli above and lives at <parent>/venv/bin/dora.
+# Make sure nothing else shadows it:
+#   which dora    # must be <parent>/venv/bin/dora
+#   dora --version  # must be 1.0.1, matching the venv's dora-rs
 ```
 
 > Exact package layout may differ slightly per repo — the rule is simply that the

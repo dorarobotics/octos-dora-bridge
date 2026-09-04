@@ -11,7 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ["3.10", "3.11", "3.12"]
+        # 3.10 dropped: dora-rs 1.0.x ships cp311-abi3 wheels and declares
+        # requires-python >=3.11, so the bridge's floor is now 3.11.
+        python: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python }}
@@ -61,7 +63,9 @@ jobs:
           fi
       - name: Install dora CLI
         if: steps.vendor_auth.outputs.skip != 'true'
-        run: pip install dora-rs-cli
+        # Must match the dora-rs the bridge pins (>=1.0.1,<1.1) — the CLI/daemon
+        # wire protocol is not stable across minor releases.
+        run: pip install "dora-rs-cli==1.0.1"
       - name: Install bridge + agibot adapter
         if: steps.vendor_auth.outputs.skip != 'true'
         run: |

@@ -6,9 +6,12 @@ build-backend = "setuptools.build_meta"
 name = "octos-spec-bridge"
 version = "0.1.0"
 description = "SPEC-VENDOR-NODE-V1 ↔ octos HTTP bridge (dora node + FastAPI)"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-  "dora-rs",
+  # dora 1.0.1 is the formal release (wheels on PyPI). The CLI/daemon and this
+  # Python package share a wire protocol that is not stable across minor
+  # releases — keep `dora-rs-cli` on the SAME version. 1.0.x requires py>=3.11.
+  "dora-rs>=1.0.1,<1.1",
   "pyarrow>=14",
   "fastapi>=0.110",
   "uvicorn[standard]>=0.27",
@@ -35,11 +38,11 @@ addopts = "-ra"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.mypy]
 strict = true
-python_version = "3.10"
+python_version = "3.11"
 files = ["octos_spec_bridge"]
 
 [[tool.mypy.overrides]]

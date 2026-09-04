@@ -1,5 +1,12 @@
 # Deployment guide — octos + SO-101/reBot on a fresh Linux box
 
+> **Runtime version note.** This document is the validated record of a run on
+> **dora 0.2.1**, and its dora pins are left as-run. The repo now targets
+> **dora 1.0.1** — `pip install "dora-rs==1.0.1" "dora-rs-cli==1.0.1"`, Python
+> 3.11+, no cargo build. For a fresh setup use 1.0.1 and see [`DORA_1.0.md`](DORA_1.0.md)
+> instead of the version pins below; everything else here still applies.
+
+
 This is the **validated install sequence** for standing up the octos robot demo on a
 fresh machine, plus the **environment gotchas** found while validating it on a clean
 Ubuntu 22.04 host. The full pipeline (octos build → robot stack → dora dataflow →

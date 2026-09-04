@@ -1,5 +1,12 @@
 # setup.md — Run nav-base as an octos skill, no hardware (sim) + visualization
 
+> **Runtime version note.** This document is the validated record of a run on
+> **dora 0.2.1**, and its dora pins are left as-run. The repo now targets
+> **dora 1.0.1** — `pip install "dora-rs==1.0.1" "dora-rs-cli==1.0.1"`, Python
+> 3.11+, no cargo build. For a fresh setup use 1.0.1 and see [`DORA_1.0.md`](../../DORA_1.0.md)
+> instead of the version pins below; everything else here still applies.
+
+
 This stands up the **nav-base** mobile-navigation skill so you can drive a base from
 **octos chat** with **no robot, no GPU, no SLAM stack** — fake localization/planner (or a
 kinematic toy sim) stand in for [dora-nav](https://github.com/bobdingAI/dora-nav). It also
