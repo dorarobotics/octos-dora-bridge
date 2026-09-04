@@ -1,0 +1,132 @@
+name: release
+
+# Tagging is the trigger. `RELEASING.md` documents the human half.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      # Pre-releases (v0.2.0-rc.1). The pattern above does not match a
+      # suffix — dora silently skipped its whole v1.0.0 rc series that way.
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+  # Manual re-run of a release that died partway. Point it at the release
+  # *tag*; check-version refuses anything else.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ── 0. Fail fast if the tag doesn't match the packaged version ────────────
+  check-version:
+    name: Verify tag matches bridge version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - id: check
+        name: Compare tag with bridge/pyproject.toml
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "::error::run this workflow against a release tag; got $GITHUB_REF_TYPE '$GITHUB_REF_NAME'"
+            exit 1
+          fi
+          tag_version="${GITHUB_REF_NAME#v}"
+          pkg_version=$(python -c 'import tomllib;print(tomllib.load(open("bridge/pyproject.toml","rb"))["project"]["version"])')
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "::error::tag v$tag_version does not match bridge/pyproject.toml version $pkg_version — bump the version before tagging"
+            exit 1
+          fi
+          echo "tag v$tag_version matches bridge/pyproject.toml"
+          echo "version=$pkg_version" >> "$GITHUB_OUTPUT"
+          # Anything with a suffix (-rc.1, -beta) ships as a GitHub pre-release.
+          case "$tag_version" in
+            *-*) echo "prerelease=true"  >> "$GITHUB_OUTPUT" ;;
+            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  # ── 1. Don't ship a wheel whose tests don't pass ──────────────────────────
+  # ci.yml runs on pushes to main and on PRs, neither of which fires for a
+  # tag push. Without this a release could ship code no CI ever saw.
+  test:
+    name: Test before release
+    needs: check-version
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install bridge with dev extras
+        working-directory: bridge
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Unit + component tests
+        working-directory: bridge
+        run: pytest -q
+
+  # ── 2. Build the distributables ──────────────────────────────────────────
+  build:
+    name: Build wheel + sdist
+    needs: [check-version, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build
+        working-directory: bridge
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Show what was built
+        run: ls -l bridge/dist/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: bridge/dist/*
+          if-no-files-found: error
+
+  # ── 3. Create the GitHub Release ─────────────────────────────────────────
+  github-release:
+    name: GitHub Release
+    needs: [check-version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # git-cliff needs the full history to compute the range for --latest.
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: release-assets/
+      # The grouped, categorised half of the notes (dora's format).
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@3d96a18cc4ec17e9dc69ddcc424ccafaf1f78ce2 # v4.9.0
+        id: cliff
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+      # `generate_release_notes` makes GitHub APPEND its own "What's Changed"
+      # PR list (titles, authors, links, full-changelog compare link) below the
+      # git-cliff body. That half reads PR metadata rather than commit
+      # subjects, so it is correct even for merge-commit history.
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: v${{ needs.check-version.outputs.version }}
+          body: ${{ steps.cliff.outputs.content }}
+          generate_release_notes: true
+          prerelease: ${{ needs.check-version.outputs.prerelease }}
+          files: release-assets/*
+          fail_on_unmatched_files: true

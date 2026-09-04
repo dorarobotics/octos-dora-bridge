@@ -9,6 +9,8 @@
 #  Python deps so `examples/run-so101-demo.sh` just works. Idempotent — re-running
 #  skips anything already present. See RUNNING_SO101.md for the full walkthrough.
 #
+#  Requires Python >= 3.11 (dora-rs 1.0.x ships cp311-abi3 wheels only).
+#
 #  Env overrides:
 #      BRANCH=feat/so101   branch to check out in all three repos
 #      VENV=<parent>/venv  venv location
@@ -42,17 +44,29 @@ clone https://github.com/dorarobotics/moveit-arm-dora-node.git moveit-arm-dora-n
 # octos-dora-bridge is the repo we're already in.
 
 # --- python venv + deps ------------------------------------------------------
+# dora-rs 1.0.x publishes cp311-abi3 wheels only; on 3.10 pip silently resolves
+# back to a 0.5.x dora and the nodes then fail the wire-protocol handshake.
+PY_BOOTSTRAP="${PY_BOOTSTRAP:-python3}"
+if ! "$PY_BOOTSTRAP" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
+  say "ERROR: dora 1.0.x needs Python >= 3.11; '$PY_BOOTSTRAP' is $("$PY_BOOTSTRAP" -V 2>&1)."
+  say "       Re-run with e.g.  PY_BOOTSTRAP=python3.12 bash setup.sh"
+  exit 1
+fi
+
 if [ ! -d "$VENV" ]; then
   say "creating venv at $VENV…"
-  python3 -m venv "$VENV"
+  "$PY_BOOTSTRAP" -m venv "$VENV"
 fi
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
 PY="$VENV/bin/python"
 
-say "installing python deps (dora-rs runtime + mujoco + the repos)…"
+say "installing python deps (dora 1.0.1 runtime + CLI + mujoco + the repos)…"
 "$PY" -m pip install -q --upgrade pip
-"$PY" -m pip install -q "dora-rs==0.3.*" mujoco numpy pyarrow
+# dora 1.0.1 is the formal release: both the Python binding AND the CLI ship
+# wheels on PyPI, so no cargo build is needed. Install them together at the same
+# version — the CLI/daemon wire protocol is not stable across minor releases.
+"$PY" -m pip install -q "dora-rs==1.0.1" "dora-rs-cli==1.0.1" mujoco numpy pyarrow
 # Editable installs — layouts vary slightly; install what exists, warn otherwise.
 for pkg in "$PARENT/dora-moveit2/dora_moveit" "$PARENT/dora-moveit2/dora-mujoco" \
            "$PARENT/moveit-arm-dora-node" "$HERE"; do
@@ -73,10 +87,17 @@ if [ "$WITH_AGENT" = "1" ]; then
     || say "  NOTE: install Ollama (https://ollama.com) and run 'ollama pull qwen3:8b'"
 fi
 
-# --- dora CLI check (can't portably auto-install) ----------------------------
-if ! command -v dora >/dev/null; then
-  say "WARNING: the 'dora' CLI is not on PATH. Install it (must match dora-rs 0.3.x):"
-  say "    cargo install dora-cli --locked    # or grab a release from https://github.com/dora-rs/dora/releases"
+# --- dora CLI check ----------------------------------------------------------
+# dora-rs-cli was installed into the venv above, so $VENV/bin/dora is the matched
+# 1.0.1 pair for the venv's dora-rs. Warn if a DIFFERENT dora shadows it on PATH.
+DORA_BIN="$(command -v dora || true)"
+if [ -z "$DORA_BIN" ]; then
+  say "WARNING: no 'dora' on PATH — activate the venv ($VENV/bin/activate) or run $VENV/bin/dora"
+elif [ "$DORA_BIN" != "$VENV/bin/dora" ]; then
+  say "WARNING: 'dora' on PATH is $DORA_BIN, not the venv's $VENV/bin/dora."
+  say "         CLI and python dora-rs must BOTH be 1.0.1 — prefer the venv one:"
+  say "             export PATH=\"$VENV/bin:\$PATH\""
+  say "         (found: $("$DORA_BIN" --version 2>/dev/null || echo unknown))"
 fi
 
 cat <<DONE

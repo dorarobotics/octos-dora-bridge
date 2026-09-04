@@ -6,9 +6,12 @@ build-backend = "setuptools.build_meta"
 name = "octos-spec-bridge"
 version = "0.1.0"
 description = "SPEC-VENDOR-NODE-V1 ↔ octos HTTP bridge (dora node + FastAPI)"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-  "dora-rs>=0.2.1,<0.5",
+  # dora 1.0.1 is the formal release (wheels on PyPI). The CLI/daemon and this
+  # Python package share a wire protocol that is not stable across minor
+  # releases — keep `dora-rs-cli` on the SAME version. 1.0.x requires py>=3.11.
+  "dora-rs>=1.0.1,<1.1",
   "pyarrow>=14",
   "fastapi>=0.110",
   "uvicorn[standard]>=0.27",
@@ -35,13 +38,23 @@ addopts = "-ra"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
+
+[tool.ruff.lint]
+# Pin the rule set this code was written against (pycodestyle errors +
+# pyflakes, ruff's historical default). `dev` installs an unpinned
+# `ruff>=0.4`, and ruff has since broadened its implicit defaults — that
+# turned CI red with 21 findings (UP045/RUF100/UP035/B008/I001) without a
+# single line of code changing. Widening this set is a deliberate decision
+# plus the matching fixes, not something an upstream release imposes.
+select = ["E4", "E7", "E9", "F"]
 
 [tool.mypy]
 strict = true
-python_version = "3.10"
+python_version = "3.11"
 files = ["octos_spec_bridge"]
 
 [[tool.mypy.overrides]]
-module = "dora"
+# Neither ships type stubs or a py.typed marker.
+module = ["dora", "pyarrow"]
 ignore_missing_imports = true

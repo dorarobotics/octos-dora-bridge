@@ -8,7 +8,7 @@ wire shape — keep them pure and well-tested.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 CMD_TOKEN = "octos-bridge"
@@ -18,7 +18,7 @@ SPEC_VERSION = "1.0.0"
 
 def _now_iso() -> str:
     """ISO-8601 UTC timestamp with millisecond precision and trailing Z."""
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def tool_call_to_cmd_request(

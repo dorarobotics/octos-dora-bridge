@@ -1,0 +1,40 @@
+name: pr-title
+
+# Keeps the release notes readable. With squash-merge, the PR title BECOMES
+# the commit subject — so a conventional title here is what lets git-cliff
+# group the commit under Features / Bug Fixes / ... instead of "Other".
+#
+# See RELEASING.md for the list of allowed types.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  lint:
+    name: Conventional PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            test
+            ci
+            build
+            chore
+          # Scopes are optional, but when present must look like `bridge`,
+          # `nav-base`, `so101` — a repo area, lowercase.
+          requireScope: false
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            The subject "{subject}" of PR title "{title}" should start lowercase.
