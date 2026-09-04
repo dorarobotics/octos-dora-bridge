@@ -58,7 +58,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ["3.11", "3.12"]
+        # Must mirror ci.yml. 3.10 is a hard requirement for the robot fleet,
+        # and this is the only gate a tag push runs — without it a 3.10-only
+        # regression (e.g. a 3.11+ stdlib import) ships in the release.
+        python: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
