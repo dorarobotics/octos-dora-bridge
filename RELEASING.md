@@ -9,14 +9,25 @@ Releases are cut by **pushing a tag**. Everything after that is automated by
 # 1. Bump the version (this is the source of truth CI checks against)
 vim bridge/pyproject.toml            # [project] version = "0.2.0"
 
-# 2. Refresh the changelog
-git cliff --output CHANGELOG.md      # or: brew install git-cliff
+# 2. Refresh the changelog. --tag is required: the tag does not exist yet, so
+#    without it git-cliff heads the new section "Unreleased" instead of "0.2.0".
+git cliff --tag v0.2.0 --output CHANGELOG.md    # or: brew install git-cliff
 
 # 3. Commit, tag, push
 git commit -am "chore: release v0.2.0"
-git tag v0.2.0
+git tag -a v0.2.0 -m "v0.2.0"        # -a matters: see the note below
 git push origin main --follow-tags
 ```
+
+> **Use `git tag -a`.** `--follow-tags` pushes *annotated* tags only. A
+> lightweight `git tag v0.2.0` is silently left behind — you get a `main` push,
+> no tag, no release, and **no error**. If you already made a lightweight tag,
+> push it by name: `git push origin v0.2.0`. Either way, confirm it landed
+> before walking away:
+>
+> ```bash
+> git ls-remote --tags origin v0.2.0     # must print the tag
+> ```
 
 Then watch the **release** workflow. When it goes green the release is live at
 `https://github.com/dorarobotics/octos-dora-bridge/releases/tag/v0.2.0`.
