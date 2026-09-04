@@ -1,0 +1,24 @@
+# Groups the "What's Changed" PR list that GitHub appends beneath the
+# git-cliff body (see .github/workflows/release.yml). Labels drive the
+# grouping; a PR with no matching label falls into "Other Changes".
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+    authors:
+      - dependabot
+  categories:
+    - title: Features
+      labels: ["enhancement", "feature"]
+    - title: Bug Fixes
+      labels: ["bug", "fix"]
+    - title: Robot Support
+      labels: ["robot", "vendor-adapter", "skill"]
+    - title: dora Runtime
+      labels: ["dora"]
+    - title: Documentation
+      labels: ["documentation", "docs"]
+    - title: CI & Build
+      labels: ["ci", "build"]
+    - title: Other Changes
+      labels: ["*"]

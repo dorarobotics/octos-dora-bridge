@@ -1,0 +1,55 @@
+# git-cliff configuration — generates the grouped changelog for GitHub Releases.
+#
+# Usage:  git cliff --output CHANGELOG.md          # full history
+#         git cliff --latest --strip header        # just the newest tag (what CI does)
+# Docs:   https://git-cliff.org
+#
+# Modelled on dora-rs/dora's cliff.toml with two deliberate differences:
+#   1. `filter_unconventional = false` + a catch-all parser. dora drops any
+#      commit that isn't `feat|fix|perf|...`; on this repo's history that would
+#      silently discard about 20 of 47 commits. Here they land in "Other"
+#      instead of vanishing.
+#   2. A postprocessor that linkifies `(#123)` so PR references become real
+#      links once squash-merge starts putting them in commit subjects.
+
+[changelog]
+header = "# Changelog\n\nAll notable changes to this project will be documented in this file.\n\n"
+body = """
+{% if version %}\
+## {{ version | trim_start_matches(pat="v") }} ({{ timestamp | date(format="%Y-%m-%d") }})
+{% else %}\
+## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | split(pat="\n") | first | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/dorarobotics/octos-dora-bridge/commit/{{ commit.id }}))
+{%- endfor %}
+{% endfor %}\n
+"""
+trim = true
+# Turn `(#123)` in a commit subject into a link to that PR.
+postprocessors = [
+  { pattern = '\(#(\d+)\)', replace = "([#${1}](https://github.com/dorarobotics/octos-dora-bridge/pull/${1}))" },
+]
+
+[git]
+conventional_commits = true
+# Keep non-conventional commits — see note in the header above.
+filter_unconventional = false
+# Merge commits add no information the PR list doesn't already carry.
+filter_commits = false
+commit_parsers = [
+    { message = "^Merge (pull request|branch|remote-tracking)", skip = true },
+    { message = "^chore\\(release\\)|^chore: release", skip = true },
+    { message = "^feat", group = "Features" },
+    { message = "^fix", group = "Bug Fixes" },
+    { message = "^perf", group = "Performance" },
+    { message = "^refactor", group = "Refactoring" },
+    { message = "^docs", group = "Documentation" },
+    { message = "^test", group = "Testing" },
+    { message = "^ci|^build", group = "CI & Build" },
+    { message = "^chore", group = "Chores" },
+    # Catch-all: anything that parsed as nothing above still shows up.
+    { message = ".*", group = "Other" },
+]
