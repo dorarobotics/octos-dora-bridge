@@ -1,5 +1,25 @@
 # octos-dora-bridge
 
+> **Moved.** This repository is no longer maintained. The bridge, every skill, the
+> dataflows, examples and docs now live in
+> [dorarobotics/octos-robot-skills](https://github.com/dorarobotics/octos-robot-skills),
+> which is the single source for deploying octos on dora. Do not add new robots here.
+>
+> | Was here | Now in octos-robot-skills |
+> |---|---|
+> | `bridge/octos_spec_bridge/` | `bridge/octos_spec_bridge/` (adds the MCP facade at `/mcp`, safety-tier filtering and automatic heartbeats; the stock dora-rs event fix is included) |
+> | `skills/{so101,rebot,ur5e,nav-base}/` | `skills/{so101,rebot,ur5e,nav-base}/` |
+> | `skills/{agibot-a2,unitree-g1,ff-navi}/` | same paths (these were duplicates) |
+> | `dataflows/*.yaml` | `dataflows/*.yaml` (bridge nodes enable MCP) |
+> | `examples/`, `scripts/`, `setup.sh`, `tests/test_nav_toy_sim.py` | same paths |
+> | `DEPLOYMENT.md`, `RUNNING_SO101.md`, `ADDING_HARDWARE.md`, `DORA_1.0.md`, `manual_skill.md`, `manual_nav_viz.md` | `docs/` |
+>
+> Skills there run from `${OCTOS_ROBOT_SKILLS_ROOT:-/opt/octos-robot-skills}`
+> instead of `/opt/octos-dora-bridge`. Existing `/opt/octos-dora-bridge` installs keep
+> working but get no fixes; switch by cloning octos-robot-skills to
+> `/opt/octos-robot-skills` (or setting `OCTOS_ROBOT_SKILLS_ROOT`) and reinstalling
+> the bridge from its `bridge/` directory.
+
 Drop-in skills that let [octos](https://github.com/octos-org/octos) control
 real robots via [dora-rs](https://github.com/dora-rs/dora) vendor adapters
 that speak `SPEC-VENDOR-NODE-V1`.
